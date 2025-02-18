@@ -13,6 +13,8 @@ import webbrowser
 import logging
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import time
+from datetime import datetime
 
 # 在文件开头添加超时设置
 import requests
@@ -46,6 +48,36 @@ retries = Retry(
 )
 session.mount('http://', HTTPAdapter(max_retries=retries))
 
+# 添加文件处理状态跟踪
+class FileProcessor:
+    def __init__(self):
+        self.processed_files = {}  # 存储已处理文件的状态
+        
+    def clear_files(self):
+        """清空所有文件记录"""
+        self.processed_files = {}
+        
+    def add_file(self, file_name):
+        self.processed_files[file_name] = {
+            'status': '等待处理',
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'chunks': 0
+        }
+        
+    def update_status(self, file_name, status, chunks=None):
+        if file_name in self.processed_files:
+            self.processed_files[file_name]['status'] = status
+            if chunks is not None:
+                self.processed_files[file_name]['chunks'] = chunks
+                
+    def get_file_list(self):
+        return [
+            f"📄 {fname} | {info['status']}"
+            for fname, info in self.processed_files.items()
+        ]
+
+file_processor = FileProcessor()
+
 def extract_text(filepath):
     """改进的PDF文本提取方法"""
     output = StringIO()
@@ -53,42 +85,95 @@ def extract_text(filepath):
         extract_text_to_fp(file, output)
     return output.getvalue()
 
-def process_pdf(file, progress=gr.Progress()):
-    """PDF处理全流程"""
+def process_multiple_pdfs(files, progress=gr.Progress()):
+    """处理多个PDF文件"""
+    if not files:
+        return "请选择要上传的PDF文件", []
+    
     try:
-        progress(0.2, desc="解析PDF...")
-        text = extract_text(file.name)
+        # 清空向量数据库
+        progress(0.1, desc="清理历史数据...")
+        try:
+            # 获取所有现有文档的ID
+            existing_data = COLLECTION.get()
+            if existing_data and existing_data['ids']:
+                COLLECTION.delete(ids=existing_data['ids'])
+            logging.info("成功清理历史向量数据")
+        except Exception as e:
+            logging.error(f"清理历史数据时出错: {str(e)}")
+            return f"清理历史数据失败: {str(e)}", []
         
-        progress(0.4, desc="分割文本...")
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=800,
-            chunk_overlap=50
-        )
-        chunks = text_splitter.split_text(text)
+        # 清空文件处理状态
+        file_processor.clear_files()
         
-        progress(0.6, desc="生成嵌入...")
-        embeddings = EMBED_MODEL.encode(chunks)
+        total_files = len(files)
+        processed_results = []
+        total_chunks = 0
         
-        progress(0.8, desc="存储向量...")
-        # 清空现有数据的正确方式
-        existing_ids = COLLECTION.get()['ids']
-        if existing_ids:
-            COLLECTION.delete(ids=existing_ids)
-        # 存入新数据
-        ids = [str(i) for i in range(len(chunks))]
-        COLLECTION.add(
-            ids=ids,
-            embeddings=embeddings.tolist(),
-            documents=chunks
-        )
+        for idx, file in enumerate(files, 1):
+            try:
+                file_name = os.path.basename(file.name)
+                progress((idx-1)/total_files, desc=f"处理文件 {idx}/{total_files}: {file_name}")
+                
+                # 添加文件到处理器
+                file_processor.add_file(file_name)
+                
+                # 处理单个文件
+                text = extract_text(file.name)
+                
+                text_splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=800,
+                    chunk_overlap=50
+                )
+                chunks = text_splitter.split_text(text)
+                
+                if not chunks:
+                    raise ValueError("文档内容为空或无法提取文本")
+                
+                # 生成文档唯一标识符
+                doc_id = f"doc_{int(time.time())}_{idx}"
+                
+                # 生成嵌入
+                embeddings = EMBED_MODEL.encode(chunks)
+                
+                # 存储向量，添加文档源信息
+                ids = [f"{doc_id}_chunk_{i}" for i in range(len(chunks))]
+                metadatas = [{"source": file_name, "doc_id": doc_id} for _ in chunks]
+                
+                COLLECTION.add(
+                    ids=ids,
+                    embeddings=embeddings.tolist(),
+                    documents=chunks,
+                    metadatas=metadatas
+                )
+                
+                # 更新处理状态
+                total_chunks += len(chunks)
+                file_processor.update_status(file_name, "处理完成", len(chunks))
+                processed_results.append(f"✅ {file_name}: 成功处理 {len(chunks)} 个文本块")
+                
+            except Exception as e:
+                error_msg = str(e)
+                logging.error(f"处理文件 {file_name} 时出错: {error_msg}")
+                file_processor.update_status(file_name, f"处理失败: {error_msg}")
+                processed_results.append(f"❌ {file_name}: 处理失败 - {error_msg}")
         
-        progress(1.0, desc="完成!")
-        return "PDF处理完成，已存储 {} 个文本块".format(len(chunks))
+        # 添加总结信息
+        summary = f"\n总计处理 {total_files} 个文件，{total_chunks} 个文本块"
+        processed_results.append(summary)
+        
+        # 获取更新后的文件列表
+        file_list = file_processor.get_file_list()
+        
+        return "\n".join(processed_results), file_list
+        
     except Exception as e:
-        return f"处理失败: {str(e)}"
+        error_msg = str(e)
+        logging.error(f"整体处理过程出错: {error_msg}")
+        return f"处理过程出错: {error_msg}", []
 
 def stream_answer(question, progress=gr.Progress()):
-    """流式问答处理流程"""
+    """改进的流式问答处理流程"""
     try:
         progress(0.3, desc="生成问题嵌入...")
         query_embedding = EMBED_MODEL.encode([question]).tolist()
@@ -96,26 +181,32 @@ def stream_answer(question, progress=gr.Progress()):
         progress(0.5, desc="检索相关内容...")
         results = COLLECTION.query(
             query_embeddings=query_embedding,
-            n_results=3
+            n_results=3,
+            include=['documents', 'metadatas']
         )
         
-        context = "\n".join(results['documents'][0])
+        # 组合上下文，包含来源信息
+        context_with_sources = []
+        for doc, metadata in zip(results['documents'][0], results['metadatas'][0]):
+            source = metadata.get('source', '未知来源')
+            context_with_sources.append(f"[来源: {source}]\n{doc}")
+        
+        context = "\n\n".join(context_with_sources)
         prompt = f"""基于以下上下文：
         {context}
         
         问题：{question}
-        请用中文给出详细回答："""
+        请用中文给出详细回答，并在回答末尾标注信息来源："""
         
         progress(0.7, desc="生成回答...")
         full_answer = ""
         
-        # 流式请求
         response = session.post(
             "http://localhost:11434/api/generate",
             json={
                 "model": "deepseek-r1:1.5b",
                 "prompt": prompt,
-                "stream": True  # 启用流式
+                "stream": True
             },
             timeout=120,
             stream=True
@@ -160,7 +251,7 @@ def query_answer(question, progress=gr.Progress()):
         response = session.post(
             "http://localhost:11434/api/generate",
             json={
-                "model": "deepseek-r1:1.5b",
+                "model": "deepseek-r1:7b",
                 "prompt": prompt,
                 "stream": False
             },
@@ -185,10 +276,197 @@ def query_answer(question, progress=gr.Progress()):
 with gr.Blocks(
     title="本地RAG问答系统",
     css="""
-    .gradio-container {max-width: 1200px !important}
-    .answer-box {min-height: 500px !important;}
-    .left-panel {padding-right: 20px; border-right: 1px solid #eee;}
-    .right-panel {height: 100vh;}
+    /* 全局主题变量 */
+    :root[data-theme="light"] {
+        --text-color: #2c3e50;
+        --bg-color: #ffffff;
+        --panel-bg: #f8f9fa;
+        --border-color: #e9ecef;
+        --success-color: #4CAF50;
+        --error-color: #f44336;
+        --primary-color: #2196F3;
+        --secondary-bg: #ffffff;
+        --hover-color: #e9ecef;
+        --chat-user-bg: #e3f2fd;
+        --chat-assistant-bg: #f5f5f5;
+    }
+
+    :root[data-theme="dark"] {
+        --text-color: #e0e0e0;
+        --bg-color: #1a1a1a;
+        --panel-bg: #2d2d2d;
+        --border-color: #404040;
+        --success-color: #81c784;
+        --error-color: #e57373;
+        --primary-color: #64b5f6;
+        --secondary-bg: #2d2d2d;
+        --hover-color: #404040;
+        --chat-user-bg: #1e3a5f;
+        --chat-assistant-bg: #2d2d2d;
+    }
+
+    /* 全局样式 */
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    .gradio-container {
+        max-width: 1200px !important;
+        color: var(--text-color);
+        background-color: var(--bg-color);
+    }
+
+    /* 主题切换按钮 */
+    .theme-toggle {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1000;
+        padding: 8px 16px;
+        border-radius: 20px;
+        border: 1px solid var(--border-color);
+        background: var(--panel-bg);
+        color: var(--text-color);
+        cursor: pointer;
+        transition: all 0.3s ease;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .theme-toggle:hover {
+        background: var(--hover-color);
+    }
+
+    /* 面板样式 */
+    .left-panel {
+        padding-right: 20px;
+        border-right: 1px solid var(--border-color);
+        background: var(--bg-color);
+    }
+
+    .right-panel {
+        height: 100vh;
+        background: var(--bg-color);
+    }
+
+    /* 文件列表样式 */
+    .file-list {
+        margin-top: 10px;
+        padding: 12px;
+        background: var(--panel-bg);
+        border-radius: 8px;
+        font-size: 14px;
+        line-height: 1.6;
+        border: 1px solid var(--border-color);
+    }
+
+    /* 答案框样式 */
+    .answer-box {
+        min-height: 500px !important;
+        background: var(--panel-bg);
+        border-radius: 8px;
+        padding: 16px;
+        font-size: 15px;
+        line-height: 1.6;
+        border: 1px solid var(--border-color);
+    }
+
+    /* 输入框样式 */
+    textarea {
+        background: var(--panel-bg) !important;
+        color: var(--text-color) !important;
+        border: 1px solid var(--border-color) !important;
+        border-radius: 8px !important;
+        padding: 12px !important;
+        font-size: 14px !important;
+    }
+
+    /* 按钮样式 */
+    button.primary {
+        background: var(--primary-color) !important;
+        color: white !important;
+        border-radius: 8px !important;
+        padding: 8px 16px !important;
+        font-weight: 500 !important;
+        transition: all 0.3s ease !important;
+    }
+
+    button.primary:hover {
+        opacity: 0.9;
+        transform: translateY(-1px);
+    }
+
+    /* 标题和文本样式 */
+    h1, h2, h3 {
+        color: var(--text-color) !important;
+        font-weight: 600 !important;
+    }
+
+    .footer-note {
+        color: var(--text-color);
+        opacity: 0.8;
+        font-size: 13px;
+        margin-top: 12px;
+    }
+
+    /* 加载和进度样式 */
+    #loading, .progress-text {
+        color: var(--text-color);
+    }
+
+    /* 聊天记录样式 */
+    .chat-container {
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        margin-bottom: 16px;
+        max-height: 600px;
+        overflow-y: auto;
+        background: var(--bg-color);
+    }
+
+    .chat-message {
+        padding: 12px 16px;
+        margin: 8px;
+        border-radius: 8px;
+        font-size: 14px;
+        line-height: 1.5;
+    }
+
+    .chat-message.user {
+        background: var(--chat-user-bg);
+        margin-left: 32px;
+        border-top-right-radius: 4px;
+    }
+
+    .chat-message.assistant {
+        background: var(--chat-assistant-bg);
+        margin-right: 32px;
+        border-top-left-radius: 4px;
+    }
+
+    .chat-message .timestamp {
+        font-size: 12px;
+        color: var(--text-color);
+        opacity: 0.7;
+        margin-bottom: 4px;
+    }
+
+    .chat-message .content {
+        white-space: pre-wrap;
+    }
+
+    /* 按钮组样式 */
+    .button-row {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+    }
+
+    .clear-button {
+        background: var(--error-color) !important;
+    }
     """
 ) as demo:
     gr.Markdown("# 🧠 智能文档问答系统")
@@ -198,32 +476,49 @@ with gr.Blocks(
         with gr.Column(scale=1, elem_classes="left-panel"):
             gr.Markdown("## 📂 文档处理区")
             with gr.Group():
-                file_input = gr.File(label="上传PDF文档", file_types=[".pdf"])
+                file_input = gr.File(
+                    label="上传PDF文档",
+                    file_types=[".pdf"],
+                    file_count="multiple"
+                )
                 upload_btn = gr.Button("🚀 开始处理", variant="primary")
-                upload_status = gr.Textbox(label="处理状态", interactive=False)
+                upload_status = gr.Textbox(
+                    label="处理状态",
+                    interactive=False,
+                    lines=2
+                )
+                file_list = gr.Textbox(
+                    label="已处理文件",
+                    interactive=False,
+                    lines=3,
+                    elem_classes="file-list"
+                )
+
+        # 右侧对话区
+        with gr.Column(scale=3, elem_classes="right-panel"):
+            gr.Markdown("## 📝 对话记录")
             
-            gr.Markdown("## ❓ 提问区")
+            # 对话记录显示区
+            chatbot = gr.Chatbot(
+                label="对话历史",
+                height=500,
+                elem_classes="chat-container",
+                show_label=False
+            )
+            
+            # 问题输入区
             with gr.Group():
                 question_input = gr.Textbox(
                     label="输入问题",
-                    lines=4,
-                    placeholder="例如：本文档的主要观点是什么？",
+                    lines=3,
+                    placeholder="请输入您的问题...",
                     elem_id="question-input"
                 )
-                ask_btn = gr.Button("🔍 开始提问", variant="primary")
+                with gr.Row():
+                    ask_btn = gr.Button("🔍 开始提问", variant="primary", scale=2)
+                    clear_btn = gr.Button("🗑️ 清空对话", variant="secondary", elem_classes="clear-button", scale=1)
                 status_display = gr.HTML("", elem_id="status-display")
-
-        # 右侧答案显示区
-        with gr.Column(scale=3, elem_classes="right-panel"):
-            gr.Markdown("## 📝 答案展示")
-            answer_output = gr.Textbox(
-                label="智能回答",
-                interactive=False,
-                lines=25,
-                elem_classes="answer-box",
-                autoscroll=True,
-                show_copy_button=True
-            )
+            
             gr.Markdown("""
             <div class="footer-note">
                 *回答生成可能需要1-2分钟，请耐心等待<br>
@@ -248,23 +543,59 @@ with gr.Blocks(
         </div>
         """)
 
-    # 在界面组件定义之后添加按钮事件
+    def clear_chat_history():
+        return [], ""  # 清空对话历史和输入框
+
+    # 修改问答处理函数
+    def process_chat(question, history):
+        if not question:
+            return history, ""
+        
+        history = history or []
+        history.append([question, None])
+        
+        try:
+            for response, status in stream_answer(question):
+                if status != "遇到错误":
+                    history[-1][1] = response
+                    yield history, ""
+                else:
+                    history[-1][1] = f"❌ {response}"
+                    yield history, ""
+        except Exception as e:
+            history[-1][1] = f"❌ 系统错误: {str(e)}"
+            yield history, ""
+
+    # 更新事件处理
     ask_btn.click(
-        fn=stream_answer,
-        inputs=question_input,
-        outputs=[answer_output, status_display],
-        show_progress="hidden"
+        fn=process_chat,
+        inputs=[question_input, chatbot],
+        outputs=[chatbot, question_input],
+        show_progress=False
+    ).then(
+        fn=lambda: "",
+        outputs=status_display
     )
 
+    clear_btn.click(
+        fn=clear_chat_history,
+        outputs=[chatbot, question_input],
+        show_progress=False
+    )
+
+    # 添加文件处理按钮事件
     upload_btn.click(
-        fn=process_pdf,
+        fn=process_multiple_pdfs,
         inputs=file_input,
-        outputs=upload_status
+        outputs=[upload_status, file_list]
     )
 
-# 修改JavaScript注入部分为兼容写法
+# 修改JavaScript注入部分
 demo._js = """
 function gradioApp() {
+    // 设置默认主题为暗色
+    document.documentElement.setAttribute('data-theme', 'dark');
+    
     const observer = new MutationObserver((mutations) => {
         document.getElementById("loading").style.display = "none";
         const progress = document.querySelector('.progress-text');
@@ -277,6 +608,18 @@ function gradioApp() {
     });
     observer.observe(document.body, {childList: true, subtree: true});
 }
+
+function toggleTheme() {
+    const root = document.documentElement;
+    const currentTheme = root.getAttribute('data-theme');
+    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+    root.setAttribute('data-theme', newTheme);
+}
+
+// 初始化主题
+document.addEventListener('DOMContentLoaded', () => {
+    document.documentElement.setAttribute('data-theme', 'dark');
+});
 """
 
 # 修改端口检查函数
