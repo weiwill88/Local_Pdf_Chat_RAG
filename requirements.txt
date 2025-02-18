@@ -3,7 +3,7 @@ chromadb==0.4.24
 sentence-transformers==2.6.1
 langchain==0.2.1
 pdfminer.six==20231228
-requests==2.32.3
+requests==2.31.0
 numpy==1.26.1
 tqdm==4.66.1
 typing-extensions==4.9.0
@@ -11,3 +11,5 @@ httpx==0.27.0
 httpcore==1.0.5
 uvicorn==0.29.0
 optree>=0.13.0
+python-dotenv==1.0.0
+markdown==3.5.1
