@@ -5,8 +5,10 @@ sentence-transformers>=2.6.1
 pdfminer.six>=20231228
 requests>=2.32.3
 
-# PDF处理相关
+# 文档处理相关
 langchain>=0.2.1
+
+
 
 # 工具依赖
 numpy>=1.26.1
@@ -20,3 +22,8 @@ uvicorn>=0.29.0
 fastapi>=0.111.0
 python-multipart>=0.0.9
 python-dotenv>=1.0.1
+
+python-docx>=1.1.2
+textract>=1.6.5
+urllib3>=2.3.0
+pydantic>=2.10.6

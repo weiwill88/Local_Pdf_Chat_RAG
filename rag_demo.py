@@ -15,6 +15,8 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import time
 from datetime import datetime
+import docx
+import textract
 
 # 在文件开头添加超时设置
 import requests
@@ -77,6 +79,23 @@ class FileProcessor:
         ]
 
 file_processor = FileProcessor()
+
+def extract_multifile_text(filepath):
+    """改进的PDF文本提取方法"""
+    if filepath[-4:]=='.pdf':
+        output = StringIO()
+        with open(filepath, 'rb') as file:
+            extract_text_to_fp(file, output)
+        return output.getvalue()
+    elif filepath[-5:]=='.docx':
+        doc = docx.Document(filepath)
+        full_text = []
+        for para in doc.paragraphs:
+            full_text.append(para.text)
+        return '\n'.join(full_text)
+    elif filepath[-4:]=='.doc':
+        text = textract.process(filepath).decode('utf-8')
+        return ''+text
 
 def extract_text(filepath):
     """改进的PDF文本提取方法"""
