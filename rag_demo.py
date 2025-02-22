@@ -497,7 +497,7 @@ with gr.Blocks(
             with gr.Group():
                 file_input = gr.File(
                     label="上传PDF文档",
-                    file_types=[".pdf"],
+                    file_types=[".pdf",".docx",".doc"],
                     file_count="multiple"
                 )
                 upload_btn = gr.Button("🚀 开始处理", variant="primary")
