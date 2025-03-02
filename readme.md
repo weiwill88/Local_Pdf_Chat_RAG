@@ -81,13 +81,29 @@ graph TD
 
 ### 环境准备
 
-1. **安装依赖项**：
+1. **创建并激活虚拟环境**：
+
+```bash
+# 使用venv创建虚拟环境（推荐）
+python -m venv rag_env
+# 激活虚拟环境
+# Windows
+rag_env\Scripts\activate
+# Linux/macOS
+source rag_env/bin/activate
+
+# 或者使用conda创建虚拟环境
+conda create -n rag_env python=3.9
+conda activate rag_env
+```
+
+2. **安装依赖项**：
 
 ```bash
 pip install -r requirements.txt
 ```
 
-2. **安装并启动Ollama服务**：
+3. **安装并启动Ollama服务**：
 ```bash
 # 安装Ollama (根据系统访问 https://ollama.com/download)
 # 启动服务
@@ -98,7 +114,7 @@ ollama pull deepseek-r1:7b
 ollama pull deepseek-r1:14b
 ```
 
-3. **（可选）配置联网搜索**：
+4. **（可选）配置联网搜索**：
 在项目根目录创建.env文件，添加：
 ```
 SERPAPI_KEY=您的SERPAPI密钥
@@ -143,6 +159,9 @@ python api_router.py
 - pdfminer.six：PDF文本提取
 - langchain：文本分割
 - fastapi & uvicorn：API服务
+- python-dotenv：环境变量管理
+- requests & urllib3：网络请求处理
+- jieba：中文分词（用于改进向量化）
 
 ## 🔄 系统流程
 
@@ -353,3 +372,5 @@ results = COLLECTION.query(
 ## 许可证
 
 本项目采用MIT许可证。
+
+
