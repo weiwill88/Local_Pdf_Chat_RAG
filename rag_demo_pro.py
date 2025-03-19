@@ -34,7 +34,7 @@ SEARCH_ENGINE = "google"  # 可根据需要改为其他搜索引擎
 # 新增：重排序方法配置（交叉编码器或LLM）
 RERANK_METHOD = os.getenv("RERANK_METHOD", "cross_encoder")  # "cross_encoder" 或 "llm"
 # 新增：SiliconFlow API配置
-SILICONFLOW_API_KEY = os.getenv("SILICONFLOW_API_KEY", "sk-lnflogwkgcgchrztauesjderjgjqmwldwtxwkkfwzcnshbgf")
+SILICONFLOW_API_KEY = os.getenv("SILICONFLOW_API_KEY")
 SILICONFLOW_API_URL = os.getenv("SILICONFLOW_API_URL", "https://api.siliconflow.cn/v1/chat/completions")
 
 # 在文件开头添加超时设置
@@ -1758,12 +1758,6 @@ with gr.Blocks(
             </div>
             """)
 
-    # 调整后的加载提示
-    gr.HTML("""
-    <div id="loading" style="text-align:center;padding:20px;">
-        <h3>🔄 系统初始化中，请稍候...</h3>
-    </div>
-    """)
 
     # 进度显示组件调整到左侧面板下方
     with gr.Row(visible=False) as progress_row:
