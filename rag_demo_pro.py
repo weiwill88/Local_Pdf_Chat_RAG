@@ -1,3 +1,6 @@
+import os
+os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+# 以上两行添加的Hugging Face镜像设置，是为了解决没有科学上网环境的盆友下载向量模型的问题
 import gradio as gr
 from pdfminer.high_level import extract_text_to_fp
 from sentence_transformers import SentenceTransformer
@@ -50,6 +53,8 @@ os.environ['NO_PROXY'] = 'localhost,127.0.0.1'  # 新增代理绕过设置
 
 # 初始化组件
 EMBED_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
+# 嵌入模型也可以切换成使用专为中文优化的模型，比如：
+# EMBED_MODEL = SentenceTransformer('shibing624/text2vec-base-chinese')
 CHROMA_CLIENT = chromadb.PersistentClient(
     path="./chroma_db",
     settings=chromadb.Settings(anonymized_telemetry=False)

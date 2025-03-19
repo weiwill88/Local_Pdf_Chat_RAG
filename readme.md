@@ -347,6 +347,7 @@ def recursive_retrieval(initial_query, max_iterations=3, enable_web_search=False
 def call_siliconflow_api(prompt, temperature=0.7, max_tokens=1024):
     # 调用SiliconFlow云端API获取高质量回答
 ```
+- **嵌入模型**：默认是all-MiniLM-L6-v2，也可以在代码的57行手动改成备选的
 
 用户可以根据问题复杂度和本地算力情况，灵活切换模型。
 
