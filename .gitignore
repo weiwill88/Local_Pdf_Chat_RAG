@@ -1,0 +1,20 @@
+# 虚拟环境
+rag_env/
+venv/
+
+# 本地数据库
+chroma_db/
+chroma
+
+# 日志和临时文件
+*.log
+*.tmp
+
+# IDE相关
+.idea/
+.vscode/
+__pycache__/
+*.py[cod]
+
+# 环境文件
+.env
