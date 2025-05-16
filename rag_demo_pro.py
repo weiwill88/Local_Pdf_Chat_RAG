@@ -139,7 +139,7 @@ def recursive_retrieval(initial_query, max_iterations=3, enable_web_search=False
                         semantic_results_docs.append(faiss_contents_map.get(original_id, ""))
                         semantic_results_metadatas.append(faiss_metadatas_map.get(original_id, {}))
                         semantic_results_ids.append(original_id)
-        except Exception as e:
+            except Exception as e:
                 logging.error(f"FAISS 检索错误: {str(e)}")
         
         bm25_results = BM25_MANAGER.search(query, top_k=10) # BM25_MANAGER.search returns list of dicts
@@ -205,10 +205,18 @@ def recursive_retrieval(initial_query, max_iterations=3, enable_web_search=False
                 if model_choice == "siliconflow":
                     logging.info("使用SiliconFlow API分析是否需要进一步查询")
                     next_query_result = call_siliconflow_api(next_query_prompt, temperature=0.7, max_tokens=256)
-                    if "<think>" in next_query_result:
-                        next_query = next_query_result.split("<think>")[0].strip()
+                    # SiliconFlow API返回格式包含回答和可能的思维链，这里只需要回答部分来判断是否继续
+                    # 假设call_siliconflow_api返回的是一个元组 (回答, 思维链) 或只是回答字符串
+                    if isinstance(next_query_result, tuple):
+                         next_query = next_query_result[0].strip() # 取回答部分
                     else:
-                        next_query = next_query_result
+                         next_query = next_query_result.strip() # 如果只返回字符串
+
+                    # 移除潜在的思维链标记
+                    if "<think>" in next_query:
+                        next_query = next_query.split("<think>")[0].strip()
+
+
                 else:
                     logging.info("使用本地Ollama模型分析是否需要进一步查询")
                     response = session.post(
@@ -220,9 +228,10 @@ def recursive_retrieval(initial_query, max_iterations=3, enable_web_search=False
                         },
                         timeout=30
                     )
-                    next_query = response.json().get("response", "")
+                    # Ollama 返回格式不同，需要根据实际情况提取
+                    next_query = response.json().get("response", "").strip()
                 
-                if "不需要" in next_query or "不需要进一步查询" in next_query or len(next_query.strip()) < 5:
+                if "不需要" in next_query or "不需要进一步查询" in next_query or len(next_query) < 5:
                     logging.info("LLM判断不需要进一步查询，结束递归检索")
                     break
                     
@@ -487,8 +496,8 @@ def process_multiple_pdfs(files, progress=gr.Progress()):
         faiss_metadatas_map = {}
         faiss_id_order_for_index = []
         
-            # 清空BM25索引
-            BM25_MANAGER.clear()
+        # 清空BM25索引
+        BM25_MANAGER.clear()
         logging.info("成功清理历史FAISS数据和BM25索引")
         
         # 清空文件处理状态
@@ -513,7 +522,7 @@ def process_multiple_pdfs(files, progress=gr.Progress()):
                 text_splitter = RecursiveCharacterTextSplitter(
                     chunk_size=400,        
                     chunk_overlap=40,     
-                    separators=["\\n\\n", "\\n", "。", "，", "；", "：", " ", ""]
+                    separators=["\n\n", "\n", "。", "，", "；", "：", " ", ""]
                 )
                 chunks = text_splitter.split_text(text)
                 
@@ -558,7 +567,7 @@ def process_multiple_pdfs(files, progress=gr.Progress()):
             faiss_id_order_for_index.extend(all_new_original_ids) # Keep track of order for FAISS indices
             logging.info(f"FAISS索引构建完成，共索引 {faiss_index.ntotal} 个文本块")
 
-        summary = f"\\n总计处理 {total_files} 个文件，{total_chunks} 个文本块"
+        summary = f"\n总计处理 {total_files} 个文件，{total_chunks} 个文本块"
         processed_results.append(summary)
         
         progress(0.95, desc="构建BM25检索索引...")
@@ -566,7 +575,7 @@ def process_multiple_pdfs(files, progress=gr.Progress()):
         
         file_list = file_processor.get_file_list()
         
-        return "\\n".join(processed_results), file_list
+        return "\n".join(processed_results), file_list
         
     except Exception as e:
         error_msg = str(e)
@@ -1084,6 +1093,11 @@ def call_siliconflow_api(prompt, temperature=0.7, max_tokens=1024):
     Returns:
         生成的回答文本和思维链内容
     """
+    # 检查是否配置了SiliconFlow API密钥
+    if not SILICONFLOW_API_KEY:
+        logging.error("未设置 SILICONFLOW_API_KEY 环境变量。请在.env文件中设置您的 API 密钥。")
+        return "错误：未配置 SiliconFlow API 密钥。", ""
+
     try:
         payload = {
             "model": "Pro/deepseek-ai/DeepSeek-R1",
@@ -1103,19 +1117,22 @@ def call_siliconflow_api(prompt, temperature=0.7, max_tokens=1024):
             "n": 1,
             "response_format": {"type": "text"}
         }
-        
+
         headers = {
-            "Authorization": f"Bearer sk-lkyhoqsulzscivpiogbesxhougfjaqlthmakpnkmsousyqep",
-            "Content-Type": "application/json"
+            "Authorization": f"Bearer {SILICONFLOW_API_KEY}", # 从环境变量获取密钥
+            "Content-Type": "application/json; charset=utf-8" # 明确指定编码
         }
-        
+
+        # 手动将payload编码为UTF-8 JSON字符串
+        json_payload = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+
         response = requests.post(
             SILICONFLOW_API_URL,
-            json=payload,
+            data=json_payload, # 通过data参数发送编码后的JSON
             headers=headers,
             timeout=60  # 延长超时时间
         )
-        
+
         response.raise_for_status()
         result = response.json()
         
@@ -1230,7 +1247,7 @@ def update_bm25_index():
         # Filter out any potential empty documents if necessary, though map access should be safe
         valid_docs_with_ids = [(doc_id, doc) for doc_id, doc in zip(doc_ids, documents) if doc]
         if not valid_docs_with_ids:
-             logging.warning("没有有效的文档内容可用于BM25索引")
+            logging.warning("没有有效的文档内容可用于BM25索引")
             BM25_MANAGER.clear()
             return False
             
