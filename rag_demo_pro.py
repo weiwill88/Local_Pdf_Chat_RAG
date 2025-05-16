@@ -1,6 +1,7 @@
+
 import os
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
-# 以上两行添加的Hugging Face镜像设置，是为了解决没有科学上网环境的盆友下载向量模型的问题
+# 以上两行添加的Hugging Face镜像设置，是为了解决没有科学上网环境下载向量模型的问题
 import gradio as gr
 from pdfminer.high_level import extract_text_to_fp
 from sentence_transformers import SentenceTransformer
