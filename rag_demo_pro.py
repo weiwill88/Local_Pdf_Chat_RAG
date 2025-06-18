@@ -1,4 +1,3 @@
-
 import os
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 # 以上两行添加的Hugging Face镜像设置，是为了解决没有科学上网环境下载向量模型的问题
@@ -29,6 +28,7 @@ import numpy as np # Убедимся, что numpy импортирован
 import jieba
 import threading
 from functools import lru_cache
+from typing import List, Tuple, Any, Optional
 
 # 加载环境变量
 load_dotenv()
@@ -193,14 +193,19 @@ def recursive_retrieval(initial_query, max_iterations=3, enable_web_search=False
         if current_contexts_for_llm: # Use combined web and local context for deciding next query
             current_summary = "\\n".join(current_contexts_for_llm[:3]) if current_contexts_for_llm else "未找到相关信息"
             
-            next_query_prompt = f"""基于原始问题: {initial_query}
-以及已检索信息: 
+            next_query_prompt = f"""你是一个查询优化助手。根据以下原始问题和已检索到的信息，决定是否需要一个更好的查询。
+
+[原始问题]
+{initial_query}
+
+[已检索信息摘要]
 {current_summary}
 
-分析是否需要进一步查询。如果需要，请提供新的查询问题，使用不同角度或更具体的关键词。
-如果已经有充分信息，请回复'不需要进一步查询'。
+[你的任务]
+- 如果信息**已足够**，请只回复 `不需要进一步查询`。
+- 如果信息**不充分**，请生成一个**简短、具体**的新查询。**只输出新的查询词**，不要包含任何解释或分析。
 
-新查询(如果需要):"""
+[输出]"""
             
             try:
                 if model_choice == "siliconflow":
@@ -227,13 +232,18 @@ def recursive_retrieval(initial_query, max_iterations=3, enable_web_search=False
                             "prompt": next_query_prompt,
                             "stream": False
                         },
-                        timeout=30
+                        timeout=180
                     )
                     # Ollama 返回格式不同，需要根据实际情况提取
                     next_query = response.json().get("response", "").strip()
                 
-                if "不需要" in next_query or "不需要进一步查询" in next_query or len(next_query) < 5:
+                if "不需要" in next_query or "不需要进一步查询" in next_query:
                     logging.info("LLM判断不需要进一步查询，结束递归检索")
+                    break
+                
+                # Guardrail: If the response is too long, it's probably not a valid query.
+                if len(next_query) > 100:
+                    logging.warning(f"LLM响应过长，可能不是有效的查询，将停止迭代。响应内容: {next_query[:200]}...")
                     break
                     
                 # 使用新查询继续迭代
@@ -483,7 +493,7 @@ def extract_text(filepath):
         extract_text_to_fp(file, output)
     return output.getvalue()
 
-def process_multiple_pdfs(files, progress=gr.Progress()):
+def process_multiple_pdfs(files: List[Any], progress=gr.Progress()):
     """处理多个PDF文件"""
     if not files:
         return "请选择要上传的PDF文件", []
@@ -669,7 +679,7 @@ def get_llm_relevance_score(query, doc):
                 "prompt": prompt,
                 "stream": False
             },
-            timeout=30
+            timeout=180
         )
         
         # 提取得分
@@ -1004,7 +1014,7 @@ def query_answer(question, enable_web_search=False, model_choice="ollama", progr
                     "prompt": prompt,
                     "stream": False
                 },
-                timeout=120,  # 延长到2分钟
+                timeout=180,  # 延长到3分钟
                 headers={'Connection': 'close'}  # 添加连接头
             )
             response.raise_for_status()  # 检查HTTP状态码
@@ -1120,7 +1130,7 @@ def call_siliconflow_api(prompt, temperature=0.7, max_tokens=1024):
         }
 
         headers = {
-            "Authorization": f"Bearer {SILICONFLOW_API_KEY}", # 从环境变量获取密钥
+            "Authorization": f"Bearer {SILICONFLOW_API_KEY.strip()}", # 从环境变量获取密钥并去除空格
             "Content-Type": "application/json; charset=utf-8" # 明确指定编码
         }
 
@@ -1131,7 +1141,7 @@ def call_siliconflow_api(prompt, temperature=0.7, max_tokens=1024):
             SILICONFLOW_API_URL,
             data=json_payload, # 通过data参数发送编码后的JSON
             headers=headers,
-            timeout=60  # 延长超时时间
+            timeout=180  # 延长超时时间到3分钟
         )
 
         response.raise_for_status()
@@ -1358,7 +1368,7 @@ def get_document_chunks(progress=gr.Progress()):
 chunk_data_cache = []
 
 # 新增函数：显示分块详情
-def show_chunk_details(evt: gr.SelectData, chunks):
+def show_chunk_details(evt: gr.SelectData):
     """显示选中分块的详细内容"""
     try:
         if evt.index[0] < len(chunk_data_cache):
@@ -1794,7 +1804,7 @@ with gr.Blocks(
     def clear_chat_history():
         return None, "对话已清空"
 
-    def process_chat(question, history, enable_web_search, model_choice):
+    def process_chat(question: str, history: Optional[List[Tuple[str, str]]], enable_web_search: bool, model_choice: str):
         if history is None:
             history = []
         
@@ -1885,7 +1895,6 @@ with gr.Blocks(
     # 新增：分块表格点击事件
     chunks_data.select(
         fn=show_chunk_details,
-        inputs=chunks_data,
         outputs=chunk_detail_text
     )
 
