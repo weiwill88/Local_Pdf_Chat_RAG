@@ -14,7 +14,9 @@ urllib3>=1.26.16
 jieba>=0.42.1
 pydantic>=2.9.2,<2.11.0
 
-# PDF处理相关
+# 处理相关的pdf、word等文件所需相关库
+python-docx
+python-pptx
 
 # 工具依赖
 numpy>=1.26.1
