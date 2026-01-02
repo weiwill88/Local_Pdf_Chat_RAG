@@ -881,10 +881,10 @@ def stream_answer(question, enable_web_search=False, model_choice="ollama", prog
                 json={
                     "model": "deepseek-r1:1.5b",
                     "prompt": prompt,
-                    "stream": True
+                    "stream": False
                 },
                 timeout=120,
-                stream=True
+                stream=False
             )
             
             for line in response.iter_lines():
@@ -899,8 +899,7 @@ def stream_answer(question, enable_web_search=False, model_choice="ollama", prog
                     else:
                         processed_answer = full_answer
                     
-                    yield processed_answer, "生成回答中..."
-                    
+                    yield processed_answer, "完成!"
             # 处理最终输出，确保应用思维链处理
             final_answer = process_thinking_content(full_answer)
             yield final_answer, "完成!"
@@ -1827,14 +1826,14 @@ with gr.Blocks(
             return history, "", api_text
         
         # 添加用户问题到历史
-        history.append((question, ""))
+        history.append({"role": "user", "content": question})
         
         # 创建生成器
         resp_generator = stream_answer(question, enable_web_search, model_choice)
         
         # 流式更新回答
         for response, status in resp_generator:
-            history[-1] = (question, response)
+            history[-1] =  {"role": "assistant", "content": response}
             yield history, "", api_text
 
     def update_api_info(enable_web_search, model_choice):
