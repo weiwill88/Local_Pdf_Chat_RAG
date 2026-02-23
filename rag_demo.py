@@ -45,6 +45,10 @@ SILICONFLOW_API_URL = os.getenv(
     "https://api.siliconflow.cn/v1/chat/completions"
 )  # 默认访问 SiliconFlow Chat API
 
+# 模型名称配置，支持通过环境变量自定义本地和云端模型
+OLLAMA_MODEL_NAME = os.getenv("OLLAMA_MODEL_NAME", "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B")
+SILICONFLOW_MODEL_NAME = os.getenv("SILICONFLOW_MODEL_NAME", "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B")
+
 # 设置请求超时与重试机制，提升网络访问的稳定性
 requests.adapters.DEFAULT_RETRIES = 3  # 增加网络请求失败后的重试次数
 
@@ -343,7 +347,7 @@ def recursive_retrieval(initial_query, max_iterations=3, enable_web_search=False
                     response = session.post(
                         "http://localhost:11434/api/generate",
                         json={
-                            "model": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+                            "model": OLLAMA_MODEL_NAME,
                             "prompt": next_query_prompt,
                             "stream": False
                         },
@@ -843,7 +847,7 @@ def get_llm_relevance_score(query, doc):
         response = session.post(
             "http://localhost:11434/api/generate",
             json={
-                "model": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",  # 使用较小模型进行评分
+                "model": OLLAMA_MODEL_NAME,  # 通过环境变量 OLLAMA_MODEL_NAME 配置
                 "prompt": prompt,
                 "stream": False
             },
@@ -1049,7 +1053,7 @@ def stream_answer(question, enable_web_search=False, model_choice="siliconflow",
             response = session.post(
                 "http://localhost:11434/api/generate",
                 json={
-                    "model": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+                    "model": OLLAMA_MODEL_NAME,
                     "prompt": prompt,
                     "stream": True
                 },
@@ -1183,7 +1187,7 @@ def query_answer(question, enable_web_search=False, model_choice="siliconflow", 
             response = session.post(
                 "http://localhost:11434/api/generate",
                 json={
-                    "model": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+                    "model": OLLAMA_MODEL_NAME,
                     "prompt": prompt,
                     "stream": False
                 },
@@ -1286,7 +1290,7 @@ def call_siliconflow_api(prompt, temperature=0.7, max_tokens=1024):
 
     try:
         payload = {
-            "model": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",  # Pro/deepseek-ai/DeepSeek-R1
+            "model": SILICONFLOW_MODEL_NAME,  # 通过环境变量 SILICONFLOW_MODEL_NAME 配置
             "messages": [
                 {
                     "role": "user",
@@ -1458,7 +1462,8 @@ def get_system_models_info():
         "分块方法": "RecursiveCharacterTextSplitter (chunk_size=800, overlap=150)",
         "检索方法": "向量检索 + BM25混合检索 (α=0.7)",
         "重排序模型": "交叉编码器 (sentence-transformers/distiluse-base-multilingual-cased-v2)",
-        "生成模型": "deepseek-r1 (7B/1.5B)",
+        "生成模型(Ollama)": OLLAMA_MODEL_NAME,
+        "生成模型(SiliconFlow)": SILICONFLOW_MODEL_NAME,
         "分词工具": "jieba (中文分词)"
     }
     return models_info
