@@ -2126,7 +2126,8 @@ with gr.Blocks(
                         label="对话历史",
                         height=600,  # 增加高度
                         elem_classes="chat-container",
-                        show_label=False
+                        show_label=False,
+                        type="tuples"
                     )
 
                     status_display = gr.HTML("", elem_id="status-display")
@@ -2310,7 +2311,7 @@ with gr.Blocks(
 
     # 定义函数处理事件
     def clear_chat_history():
-        return None, "对话已清空"
+        return [], "对话已清空"
 
 
     def process_chat(question: str, history: Optional[List[Tuple[str, str]]], enable_web_search: bool,
