@@ -23,7 +23,8 @@ from datetime import datetime
 # 导入配置
 from config import (
     DEFAULT_MODEL_CHOICE, SILICONFLOW_API_KEY,
-    OLLAMA_MODEL_NAME, SILICONFLOW_MODEL_NAME
+    OLLAMA_MODEL_NAME, SILICONFLOW_MODEL_NAME,
+    EMBEDDING_MODEL_NAME
 )
 
 # 导入核心模块
@@ -163,7 +164,7 @@ def show_chunk_details(evt: gr.SelectData):
 def get_system_models_info():
     """返回系统使用的各种模型信息"""
     return {
-        "Model Embedding": "all-MiniLM-L6-v2",
+        "Model Embedding": EMBEDDING_MODEL_NAME,
         "Metode Pembagian": "RecursiveCharacterTextSplitter (chunk_size=400, overlap=40)",
         "Metode Pencarian": "Pencarian Vektor + Pencarian Hibrida BM25 (α=0.7)",
         "Model Re-ranking": "Cross-Encoder (distiluse-base-multilingual-cased-v2)",

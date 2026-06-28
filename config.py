@@ -43,6 +43,11 @@ OLLAMA_MODEL_NAME = os.getenv("OLLAMA_MODEL_NAME", "deepseek-r1:8b")
 SILICONFLOW_MODEL_NAME = os.getenv("SILICONFLOW_MODEL_NAME", "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B")
 RERANK_METHOD = os.getenv("RERANK_METHOD", "cross_encoder")
 
+# Konfigurasi Model Embedding
+# Pilihan provider: 'sentence_transformers' (offline lokal) atau 'ollama' (lokal menggunakan layanan Ollama)
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "sentence_transformers")
+EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Langkah 4: Hyperparameter RAG
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
