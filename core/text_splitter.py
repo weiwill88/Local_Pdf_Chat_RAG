@@ -29,6 +29,6 @@ def split_text(text, chunk_size=None, chunk_overlap=None):
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size or CHUNK_SIZE,
         chunk_overlap=chunk_overlap or CHUNK_OVERLAP,
-        separators=["\n\n", "\n", "。", "，", "；", "：", " ", ""]
+        separators=["\n### ", "\n## ", "\n# ", "\n\n", "\n", "。", "，", "；", "：", " ", ""]
     )
     return text_splitter.split_text(text)

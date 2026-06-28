@@ -13,10 +13,12 @@ silakan baca modul demi modul sesuai dengan jalur pembelajaran di core/__init__.
 
 import os
 import time
+import re
 import logging
 import webbrowser
 import gradio as gr
 import jieba
+import numpy as np
 from typing import List, Tuple, Optional
 from datetime import datetime
 
@@ -33,6 +35,7 @@ from core.text_splitter import split_text
 from core.embeddings import encode_texts
 from core.vector_store import vector_store
 from core.bm25_index import bm25_manager
+from core.cache import load_document_cache, save_document_cache
 from core.generator import query_answer, call_siliconflow_api
 
 # 导入工具
@@ -40,6 +43,18 @@ from utils.network import is_port_available
 
 logging.basicConfig(level=logging.INFO)
 print("Gradio version:", gr.__version__)
+
+
+HEADING_PATTERN = re.compile(r"^(#{1,3})\s+(.+?)\s*$", re.MULTILINE)
+
+
+def extract_chunk_heading(chunk, previous_heading=None):
+    matches = list(HEADING_PATTERN.finditer(chunk))
+    if matches:
+        heading = matches[0].group(2).strip()
+        if heading:
+            return heading
+    return previous_heading
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -57,40 +72,104 @@ def process_multiple_files(files, progress=gr.Progress()):
 
         total_files = len(files)
         processed_results = []
-        all_chunks, all_metadatas, all_ids = [], [], []
+        documents_info = []
 
         for idx, file in enumerate(files, 1):
+            file_name = os.path.basename(file.name)
             try:
-                file_name = os.path.basename(file.name)
                 progress((idx - 1) / total_files, desc=f"Memproses file {idx}/{total_files}: {file_name}")
+
+                cached_payload, file_hash = load_document_cache(file.name)
+                if cached_payload:
+                    chunks, metadatas, chunk_ids, embeddings = cached_payload
+                    documents_info.append({
+                        "file_name": file_name,
+                        "file_hash": file_hash,
+                        "chunks": chunks,
+                        "metadatas": metadatas,
+                        "chunk_ids": chunk_ids,
+                        "embeddings": np.asarray(embeddings, dtype="float32"),
+                        "cached": True,
+                    })
+                    processed_results.append(f"✅ {file_name}: Cache hit, memuat {len(chunks)} blok teks")
+                    continue
 
                 text = extract_text(file.name)
                 if not text:
                     raise ValueError("Konten dokumen kosong atau teks tidak dapat diekstrak")
 
                 chunks = split_text(text)
-                doc_id = f"doc_{int(time.time())}_{idx}"
-                metadatas = [{"source": file_name, "doc_id": doc_id} for _ in chunks]
+                doc_id = f"doc_{file_hash[:12]}"
                 chunk_ids = [f"{doc_id}_chunk_{i}" for i in range(len(chunks))]
 
-                all_chunks.extend(chunks)
-                all_metadatas.extend(metadatas)
-                all_ids.extend(chunk_ids)
+                metadatas = []
+                current_heading = None
+                for chunk_index, chunk in enumerate(chunks):
+                    current_heading = extract_chunk_heading(chunk, current_heading)
+                    metadatas.append({
+                        "source": file_name,
+                        "doc_id": doc_id,
+                        "chunk_index": chunk_index,
+                        "heading": current_heading,
+                    })
+
+                documents_info.append({
+                    "file_name": file_name,
+                    "file_hash": file_hash,
+                    "chunks": chunks,
+                    "metadatas": metadatas,
+                    "chunk_ids": chunk_ids,
+                    "cached": False,
+                })
+
                 processed_results.append(f"✅ {file_name}: Berhasil memproses {len(chunks)} blok teks")
 
             except Exception as e:
                 logging.error(f"Terjadi kesalahan saat memproses file {file_name}: {str(e)}")
                 processed_results.append(f"❌ {file_name}: Gagal memproses - {str(e)}")
 
-        if all_chunks:
-            progress(0.8, desc="Menghasilkan embeddings teks...")
-            embeddings = encode_texts(all_chunks, show_progress=True)
+        pending_documents = [item for item in documents_info if not item["cached"]]
+        if pending_documents:
+            pending_chunks = []
+            pending_chunk_counts = []
+            for item in pending_documents:
+                pending_chunks.extend(item["chunks"])
+                pending_chunk_counts.append(len(item["chunks"]))
 
+            progress(0.8, desc="Menghasilkan embeddings teks...")
+            pending_embeddings = encode_texts(pending_chunks, show_progress=True)
+
+            offset = 0
+            for item, chunk_count in zip(pending_documents, pending_chunk_counts):
+                file_chunks = item["chunks"]
+                file_metadatas = item["metadatas"]
+                file_ids = item["chunk_ids"]
+                file_embeddings = pending_embeddings[offset:offset + chunk_count]
+                offset += chunk_count
+
+                item["embeddings"] = file_embeddings
+                save_document_cache(item["file_hash"], (file_chunks, file_metadatas, file_ids, file_embeddings))
+
+        all_chunks, all_metadatas, all_ids, all_embeddings = [], [], [], []
+        for item in documents_info:
+            all_chunks.extend(item["chunks"])
+            all_metadatas.extend(item["metadatas"])
+            all_ids.extend(item["chunk_ids"])
+            all_embeddings.append(np.asarray(item["embeddings"], dtype="float32"))
+
+        if all_embeddings:
+            embeddings = np.vstack(all_embeddings)
+        else:
+            embeddings = np.empty((0, 0), dtype="float32")
+
+        if all_chunks:
             progress(0.9, desc="Membangun indeks FAISS...")
             vector_store.build_index(all_chunks, all_ids, all_metadatas, embeddings)
 
-        progress(0.95, desc="Membangun indeks pencarian BM25...")
-        bm25_manager.build_index(all_chunks, all_ids)
+            progress(0.95, desc="Membangun indeks pencarian BM25...")
+            bm25_manager.build_index(all_chunks, all_ids)
+        else:
+            progress(0.95, desc="Tidak ada dokumen yang dapat diindeks...")
 
         summary = f"\nTotal memproses {total_files} file, {len(all_chunks)} blok teks"
         processed_results.append(summary)
@@ -125,14 +204,19 @@ def get_document_chunks(progress=gr.Progress()):
                 continue
             chunk_data = {
                 "row_id": idx, "chunk_id": chunk_id,
-                "source": meta.get("source", "Sumber tidak diketahui"), "content": content,
+                "source": meta.get("source", "Sumber tidak diketahui"),
+                "heading": meta.get("heading"),
+                "content": content,
                 "preview": content[:200] + "..." if len(content) > 200 else content,
                 "char_count": len(content),
                 "token_count": len(list(jieba.cut(content)))
             }
             chunk_data_cache[idx] = chunk_data
+            source_display = chunk_data["source"]
+            if chunk_data.get("heading"):
+                source_display = f"{source_display} | {chunk_data['heading']}"
             table_data.append([
-                chunk_data["source"], f"{idx + 1}/{len(vector_store.id_order)}",
+                source_display, f"{idx + 1}/{len(vector_store.id_order)}",
                 chunk_data["char_count"], chunk_data["token_count"], chunk_data["preview"]
             ])
 
@@ -152,6 +236,7 @@ def show_chunk_details(evt: gr.SelectData):
         if not selected:
             return "Data blok teks tidak ditemukan"
         return f"""[Sumber] {selected['source']}
+    [Heading] {selected.get('heading') or 'Tidak ada'}
 [ID] {selected['chunk_id']}
 [Jumlah Karakter] {selected['char_count']}
 [Jumlah Token] {selected['token_count']}
@@ -165,7 +250,7 @@ def get_system_models_info():
     """返回系统使用的各种模型信息"""
     return {
         "Model Embedding": EMBEDDING_MODEL_NAME,
-        "Metode Pembagian": "RecursiveCharacterTextSplitter (chunk_size=400, overlap=40)",
+        "Metode Pembagian": "RecursiveCharacterTextSplitter (chunk_size=700, overlap=80)",
         "Metode Pencarian": "Pencarian Vektor + Pencarian Hibrida BM25 (α=0.7)",
         "Model Re-ranking": "Cross-Encoder (distiluse-base-multilingual-cased-v2)",
         "Model Generatif (Ollama)": OLLAMA_MODEL_NAME,
@@ -210,7 +295,7 @@ function() {
 
 def toggle_theme():
     """返回切换主题的 JS 代码（通过 Gradio 的 js 参数执行）"""
-    return gr.update()
+    pass
 
 with gr.Blocks(title="Sistem Tanya Jawab RAG Lokal") as demo:
     with gr.Row():

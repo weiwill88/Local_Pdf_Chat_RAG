@@ -13,6 +13,13 @@ from functools import lru_cache
 from config import EMBEDDING_PROVIDER, EMBEDDING_MODEL_NAME
 
 
+def _normalize_embeddings(embeddings):
+    array = np.asarray(embeddings, dtype='float32')
+    norms = np.linalg.norm(array, axis=1, keepdims=True)
+    norms = np.where(norms == 0, 1.0, norms)
+    return array / norms
+
+
 class OllamaEmbedder:
     """
     Penyedia embedding menggunakan API lokal Ollama.
@@ -114,7 +121,7 @@ def encode_texts(texts, show_progress=False):
     """
     model = get_embed_model()
     embeddings = model.encode(texts, show_progress_bar=show_progress)
-    return np.array(embeddings).astype('float32')
+    return _normalize_embeddings(embeddings)
 
 
 def encode_query(query):
@@ -126,4 +133,4 @@ def encode_query(query):
     """
     model = get_embed_model()
     embedding = model.encode([query])
-    return np.array(embedding).astype('float32')
+    return _normalize_embeddings(embedding)

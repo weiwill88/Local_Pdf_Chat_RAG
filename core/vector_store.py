@@ -126,24 +126,25 @@ class VectorStore:
         Mencari vektor paling mirip
 
         Returns:
-            (docs, doc_ids, metadatas)
+            (docs, doc_ids, metadatas, distances)
         """
         if self.index is None or self.index.ntotal == 0:
-            return [], [], []
+            return [], [], [], []
         try:
             D, I = self.index.search(query_embedding, k=k)
-            docs, doc_ids, metadatas = [], [], []
-            for faiss_idx in I[0]:
+            docs, doc_ids, metadatas, distances = [], [], [], []
+            for faiss_idx, distance in zip(I[0], D[0]):
                 if faiss_idx != -1 and faiss_idx < len(self.id_order):
                     original_id = self.id_order[faiss_idx]
                     if original_id in self.contents_map:
                         docs.append(self.contents_map[original_id])
                         doc_ids.append(original_id)
                         metadatas.append(self.metadatas_map.get(original_id, {}))
-            return docs, doc_ids, metadatas
+                        distances.append(float(distance))
+            return docs, doc_ids, metadatas, distances
         except Exception as e:
             logging.error(f"Kesalahan pencarian FAISS: {str(e)}")
-            return [], [], []
+            return [], [], [], []
 
     @property
     def is_ready(self):

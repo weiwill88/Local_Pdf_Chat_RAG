@@ -23,7 +23,7 @@ def hybrid_merge(semantic_results, bm25_results, alpha=None):
     Menggunakan skor terbobot: Skor Semantik × alpha + Skor BM25 × (1-alpha)
 
     Args:
-        semantic_results: {'ids': [[...]], 'documents': [[...]], 'metadatas': [[...]]}
+        semantic_results: {'ids': [[...]], 'documents': [[...]], 'metadatas': [[...]], 'distances': [[...]]}
         bm25_results: [{'id': ..., 'score': ..., 'content': ...}]
         alpha: Bobot pencarian semantik
 
@@ -43,10 +43,20 @@ def hybrid_merge(semantic_results, bm25_results, alpha=None):
             isinstance(semantic_results['documents'][0], list) and
             len(semantic_results['documents'][0]) == len(semantic_results['metadatas'][0]) == len(
                 semantic_results['ids'][0])):
-        num_results = len(semantic_results['documents'][0])
+        distances = semantic_results.get('distances', [[]])
+        semantic_distances = distances[0] if isinstance(distances, list) and len(distances) > 0 else []
+        if semantic_distances and len(semantic_distances) != len(semantic_results['documents'][0]):
+            logging.warning("Hasil pencarian semantik tidak memiliki jumlah jarak yang selaras dengan dokumen")
+            semantic_distances = []
+
         for i, (doc_id, doc, meta) in enumerate(
                 zip(semantic_results['ids'][0], semantic_results['documents'][0], semantic_results['metadatas'][0])):
-            score = 1.0 - (i / max(1, num_results))
+            if semantic_distances:
+                distance = float(semantic_distances[i])
+                score = max(0.0, 1.0 - (distance / 2.0))
+            else:
+                num_results = len(semantic_results['documents'][0])
+                score = 1.0 - (i / max(1, num_results))
             merged_dict[doc_id] = {'score': alpha * score, 'content': doc, 'metadata': meta}
     else:
         logging.warning("Hasil pencarian semantik kosong atau format tidak normal")
@@ -105,9 +115,9 @@ def recursive_retrieval(initial_query, max_iterations=None, enable_web_search=Fa
 
         # 语义检索
         query_embedding = encode_query(query)
-        sem_docs, sem_ids, sem_metas = vector_store.search(query_embedding, k=RETRIEVAL_TOP_K)
+        sem_docs, sem_ids, sem_metas, sem_distances = vector_store.search(query_embedding, k=RETRIEVAL_TOP_K)
 
-        prepared = {"ids": [sem_ids], "documents": [sem_docs], "metadatas": [sem_metas]}
+        prepared = {"ids": [sem_ids], "documents": [sem_docs], "metadatas": [sem_metas], "distances": [sem_distances]}
 
         # BM25 检索
         bm25_res = bm25_manager.search(query, top_k=RETRIEVAL_TOP_K) if bm25_manager.bm25_index else []

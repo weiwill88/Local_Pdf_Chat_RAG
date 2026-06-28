@@ -126,8 +126,20 @@ def _build_context(all_contexts, all_doc_ids, all_metadata, enable_web_search):
             source_item['title'] = title
         else:
             source = metadata.get('source', 'Sumber tidak diketahui')
-            context_parts.append(f"[Dokumen Lokal: {source}]\n{doc}")
+            heading = metadata.get('heading')
+            chunk_index = metadata.get('chunk_index')
+            source_label = f"[Dokumen Lokal: {source}"
+            if heading:
+                source_label += f" | Section: {heading}"
+            if chunk_index is not None:
+                source_label += f" | Chunk #{chunk_index + 1}"
+            source_label += "]"
+            context_parts.append(f"{source_label}\n{doc}")
             source_item['source'] = source
+            if heading:
+                source_item['heading'] = heading
+            if chunk_index is not None:
+                source_item['chunk_index'] = chunk_index
 
         sources_for_conflict.append(source_item)
 

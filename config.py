@@ -51,8 +51,8 @@ EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Langkah 4: Hyperparameter RAG
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-CHUNK_SIZE = 400          # Ukuran blok teks (jumlah karakter)
-CHUNK_OVERLAP = 40        # Jumlah karakter tumpang tindih antar blok yang berdekatan
+CHUNK_SIZE = 700          # Ukuran blok teks (jumlah karakter)
+CHUNK_OVERLAP = 80        # Jumlah karakter tumpang tindih antar blok yang berdekatan
 HYBRID_ALPHA = 0.7        # Bobot pencarian semantik dalam pencarian hibrida (0-1)
 RETRIEVAL_TOP_K = 10      # Jumlah dokumen kandidat yang dikembalikan oleh pencarian
 RERANK_TOP_K = 5          # Jumlah dokumen yang dipertahankan setelah pengurutan ulang
