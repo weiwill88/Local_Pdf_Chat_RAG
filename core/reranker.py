@@ -1,11 +1,11 @@
 """
-重排序器 —— 对检索结果进行二次精排
+Re-ranker —— Melakukan pengurutan ulang halus kedua pada hasil pencarian
 
-学习要点：
-- 两阶段检索（Recall + Rerank）是工业界常用的范式
-- Recall 阶段用高效检索（FAISS/BM25）从大量文档中召回候选
-- Rerank 阶段用更精确的模型（交叉编码器/LLM）对候选精排
-- 交叉编码器比双塔模型更精确，但速度更慢（适合对少量候选精排）
+Poin Pembelajaran:
+- Pencarian dua tahap (Recall + Rerank) adalah paradigma yang umum digunakan di industri
+- Tahap Recall menggunakan pencarian efisien (FAISS/BM25) untuk memanggil kandidat dari sejumlah besar dokumen
+- Tahap Rerank menggunakan model yang lebih presisi (Cross-Encoder/LLM) untuk mengurutkan kandidat secara halus
+- Cross-Encoder lebih presisi daripada model Bi-Encoder (Dual-Tower), tetapi lebih lambat (cocok untuk pengurutan halus sejumlah kecil kandidat)
 """
 
 import logging
@@ -14,13 +14,13 @@ import threading
 from functools import lru_cache
 from config import OLLAMA_MODEL_NAME, RERANK_METHOD
 
-# 交叉编码器（懒加载 + 线程安全）
+# Cross-Encoder (Lazy Loading + Thread Safe)
 _cross_encoder = None
 _cross_encoder_lock = threading.Lock()
 
 
 def get_cross_encoder():
-    """懒加载交叉编码器模型（双重检查锁定，线程安全）"""
+    """Memuat model Cross-Encoder secara lazy (Double-Checked Locking, Thread Safe)"""
     global _cross_encoder
     if _cross_encoder is None:
         with _cross_encoder_lock:
@@ -30,21 +30,21 @@ def get_cross_encoder():
                     _cross_encoder = CrossEncoder(
                         'sentence-transformers/distiluse-base-multilingual-cased-v2'
                     )
-                    logging.info("交叉编码器加载成功")
+                    logging.info("Cross-Encoder berhasil dimuat")
                 except Exception as e:
-                    logging.error(f"加载交叉编码器失败: {str(e)}")
+                    logging.error(f"Gagal memuat Cross-Encoder: {str(e)}")
                     _cross_encoder = None
     return _cross_encoder
 
 
 def rerank_with_cross_encoder(query, docs, doc_ids, metadata_list, top_k=5):
-    """使用交叉编码器对检索结果进行重排序"""
+    """Menggunakan Cross-Encoder untuk mengurutkan ulang hasil pencarian"""
     if not docs:
         return []
 
     encoder = get_cross_encoder()
     if encoder is None:
-        logging.warning("交叉编码器不可用，跳过重排序")
+        logging.warning("Cross-Encoder tidak tersedia, melewati pengurutan ulang")
         return _fallback_results(doc_ids, docs, metadata_list)
 
     cross_inputs = [[query, doc] for doc in docs]
@@ -57,22 +57,22 @@ def rerank_with_cross_encoder(query, docs, doc_ids, metadata_list, top_k=5):
         results = sorted(results, key=lambda x: x[1]['score'], reverse=True)
         return results[:top_k]
     except Exception as e:
-        logging.error(f"交叉编码器重排序失败: {str(e)}")
+        logging.error(f"Gagal melakukan pengurutan ulang dengan Cross-Encoder: {str(e)}")
         return _fallback_results(doc_ids, docs, metadata_list)
 
 
 @lru_cache(maxsize=32)
 def get_llm_relevance_score(query, doc):
-    """使用 LLM 对查询和文档的相关性进行评分（带缓存）"""
+    """Menggunakan LLM untuk menilai relevansi antara kueri dan dokumen (dengan cache)"""
     from utils.network import get_session
     try:
-        prompt = f"""给定以下查询和文档片段，评估它们的相关性。
-        评分标准：0分表示完全不相关，10分表示高度相关。
-        只需返回一个0-10之间的整数分数，不要有任何其他解释。
+        prompt = f"""Diberikan kueri dan fragmen dokumen berikut, evaluasi relevansi keduanya.
+        Kriteria penilaian: Nilai 0 berarti sama sekali tidak relevan, nilai 10 berarti sangat relevan.
+        Cukup kembalikan satu angka skor bulat antara 0-10, tanpa penjelasan lainnya.
 
-        查询: {query}
-        文档片段: {doc}
-        相关性分数(0-10):"""
+        Kueri: {query}
+        Fragmen Dokumen: {doc}
+        Skor Relevansi (0-10):"""
 
         response = get_session().post(
             "http://localhost:11434/api/generate",
@@ -86,12 +86,12 @@ def get_llm_relevance_score(query, doc):
             match = re.search(r'\b([0-9]|10)\b', result)
             return float(match.group(1)) if match else 5.0
     except Exception as e:
-        logging.error(f"LLM评分失败: {str(e)}")
+        logging.error(f"Penilaian relevansi LLM gagal: {str(e)}")
         return 5.0
 
 
 def rerank_with_llm(query, docs, doc_ids, metadata_list, top_k=5):
-    """使用 LLM 逐一评分进行重排序"""
+    """Menggunakan LLM untuk mengurutkan ulang hasil pencarian dengan penilaian satu per satu"""
     if not docs:
         return []
     results = []
@@ -103,7 +103,7 @@ def rerank_with_llm(query, docs, doc_ids, metadata_list, top_k=5):
 
 
 def rerank_results(query, docs, doc_ids, metadata_list, method=None, top_k=5):
-    """对检索结果进行重排序（统一入口）"""
+    """Mengurutkan ulang hasil pencarian (Entri Tunjuk/Tunggal)"""
     if method is None:
         method = RERANK_METHOD
 
@@ -116,6 +116,6 @@ def rerank_results(query, docs, doc_ids, metadata_list, method=None, top_k=5):
 
 
 def _fallback_results(doc_ids, docs, metadata_list):
-    """回退方案：按原始顺序返回"""
+    """Rencana cadangan (Fallback): Mengembalikan sesuai dengan urutan asli"""
     return [(doc_id, {'content': doc, 'metadata': meta, 'score': 1.0 - idx / len(docs)})
             for idx, (doc_id, doc, meta) in enumerate(zip(doc_ids, docs, metadata_list))]

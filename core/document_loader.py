@@ -1,9 +1,9 @@
 """
-文档加载器 —— 多格式文档文本提取
+Pemuat Dokumen —— Ekstraksi Teks Dokumen Multi-Format
 
-学习要点：
-- 了解不同文档格式（PDF、Word、Excel、PPT）的解析方式
-- 理解 RAG 第一步：将非结构化文档转换为纯文本
+Poin Pembelajaran:
+- Memahami metode parsing untuk various format dokumen (PDF, Word, Excel, PPT)
+- Memahami langkah pertama RAG: mengonversi dokumen tidak terstruktur menjadi teks biasa
 """
 
 import os
@@ -13,15 +13,15 @@ from io import StringIO
 
 def extract_text(filepath):
     """
-    从文件中提取纯文本内容
+    Mengekstrak konten teks biasa dari file
 
-    支持格式：PDF / Word / Excel / PPT / 纯文本 / Markdown
+    Format yang didukung: PDF / Word / Excel / PPT / Teks Biasa / Markdown
 
     Args:
-        filepath: 文件路径
+        filepath: Jalur file
 
     Returns:
-        提取的文本内容字符串
+        String konten teks yang diekstrak
     """
     file_ext = os.path.splitext(filepath)[1].lower()
 
@@ -42,7 +42,7 @@ def extract_text(filepath):
             doc = Document(filepath)
             return "\n".join([para.text for para in doc.paragraphs])
         except ImportError:
-            logging.error("处理Word文档需要安装python-docx库")
+            logging.error("Memproses dokumen Word memerlukan instalasi pustaka python-docx")
             return ""
 
     elif file_ext in ['.xlsx', '.xls']:
@@ -52,11 +52,11 @@ def extract_text(filepath):
             xl = pd.ExcelFile(filepath)
             for sheet_name in xl.sheet_names:
                 df = xl.parse(sheet_name)
-                text += f"工作表: {sheet_name}\n"
+                text += f"Lembar Kerja: {sheet_name}\n"
                 text += df.to_string(index=False) + "\n\n"
             return text
         except ImportError:
-            logging.error("处理Excel文件需要安装pandas库")
+            logging.error("Memproses file Excel memerlukan instalasi pustaka pandas")
             return ""
 
     elif file_ext == '.pptx':
@@ -70,9 +70,9 @@ def extract_text(filepath):
                         text += shape.text + "\n"
             return text
         except ImportError:
-            logging.error("处理PPT文件需要安装python-pptx库")
+            logging.error("Memproses file PPT memerlukan instalasi pustaka python-pptx")
             return ""
 
     else:
-        logging.warning(f"不支持的文件格式: {file_ext}")
+        logging.warning(f"Format file tidak didukung: {file_ext}")
         return ""

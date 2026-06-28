@@ -1,47 +1,47 @@
 """
-向量化模型 —— 将文本映射到高维向量空间
+Model Vektorisasi —— Memetakan teks ke ruang vektor berdimensi tinggi
 
-学习要点：
-- Embedding 将文本转换为固定维度的向量，使语义相似的文本在向量空间中距离更近
-- all-MiniLM-L6-v2 是英文优化模型（384维），中文可换用 text2vec-base-chinese
-- 首次运行时模型会自动下载（约 80MB），需要网络连接
+Poin Pembelajaran:
+- Embedding mengonversi teks menjadi vektor dengan dimensi tetap, membuat teks dengan makna semantik serupa lebih dekat di ruang vektor
+- all-MiniLM-L6-v2 adalah model teroptimasi Bahasa Inggris (384 dimensi), Bahasa Mandarin dapat menggunakan text2vec-base-chinese
+- Saat pertama kali dijalankan, model akan diunduh secara otomatis (sekitar 80MB), memerlukan koneksi internet
 """
 
 import logging
 import numpy as np
 from functools import lru_cache
 
-# 模型选择说明：
-# - all-MiniLM-L6-v2: 英文优化，384维，轻量快速（默认）
-# - shibing624/text2vec-base-chinese: 中文优化
-# - BAAI/bge-small-zh-v1.5: 中文优化，性能更好
+# Deskripsi Pilihan Model:
+# - all-MiniLM-L6-v2: Teroptimasi Bahasa Inggris, 384 dimensi, ringan dan cepat (default)
+# - shibing624/text2vec-base-chinese: Teroptimasi Bahasa Mandarin
+# - BAAI/bge-small-zh-v1.5: Teroptimasi Bahasa Mandarin, performa lebih baik
 EMBED_MODEL_NAME = 'all-MiniLM-L6-v2'
 
 
 @lru_cache(maxsize=1)
 def get_embed_model():
     """
-    获取向量化模型（单例 + 缓存）
+    Mendapatkan model vektorisasi (Singleton + Cache)
 
-    首次调用时加载模型，后续调用直接返回缓存的实例。
+    Memuat model saat pertama kali dipanggil, panggilan berikutnya langsung mengembalikan instansi dari cache.
     """
     from sentence_transformers import SentenceTransformer
-    logging.info(f"加载向量化模型: {EMBED_MODEL_NAME}")
+    logging.info(f"Memuat model vektorisasi: {EMBED_MODEL_NAME}")
     model = SentenceTransformer(EMBED_MODEL_NAME)
-    logging.info(f"向量化模型加载完成，输出维度: {model.get_sentence_embedding_dimension()}")
+    logging.info(f"Pemuatan model vektorisasi selesai, dimensi output: {model.get_sentence_embedding_dimension()}")
     return model
 
 
 def encode_texts(texts, show_progress=False):
     """
-    将文本列表编码为向量
+    Mengodekan daftar teks menjadi vektor
 
     Args:
-        texts: 文本列表
-        show_progress: 是否显示进度条
+        texts: Daftar teks
+        show_progress: Apakah menampilkan bilah kemajuan
 
     Returns:
-        numpy 数组，形状为 (n_texts, embedding_dim)
+        Array numpy, bentuk (n_texts, embedding_dim)
     """
     model = get_embed_model()
     embeddings = model.encode(texts, show_progress_bar=show_progress)
@@ -50,10 +50,10 @@ def encode_texts(texts, show_progress=False):
 
 def encode_query(query):
     """
-    将单个查询文本编码为向量
+    Mengodekan teks kueri tunggal menjadi vektor
 
     Returns:
-        numpy 数组，形状为 (1, embedding_dim)
+        Array numpy, bentuk (1, embedding_dim)
     """
     model = get_embed_model()
     embedding = model.encode([query])

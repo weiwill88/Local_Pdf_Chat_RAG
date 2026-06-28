@@ -1,11 +1,11 @@
 """
-BM25 稀疏检索索引 —— 基于关键词的传统检索
+Indeks Pencarian Jarang BM25 —— Pencarian tradisional berbasis kata kunci
 
-学习要点：
-- BM25 (Best Matching 25) 是经典的信息检索算法
-- 与向量语义检索互补：语义检索擅长理解意图，BM25 擅长精确关键词匹配
-- 中文需要先分词（jieba），英文可直接按空格分
-- 两者混合使用（Hybrid Search）可以显著提升检索效果
+Poin Pembelajaran:
+- BM25 (Best Matching 25) adalah algoritma temu kembali informasi klasik
+- Saling melengkapi dengan pencarian semantik vektor: pencarian semantik ahli dalam memahami niat/intent, BM25 ahli dalam pencocokan kata kunci yang tepat
+- Bahasa Mandarin perlu disegmentasi terlebih dahulu (jieba), Bahasa Inggris dapat langsung dipisahkan dengan spasi
+- Penggunaan hibrida dari keduanya (Hybrid Search) dapat secara signifikan meningkatkan efek pencarian
 """
 
 import logging
@@ -16,10 +16,10 @@ from rank_bm25 import BM25Okapi
 
 class BM25IndexManager:
     """
-    BM25 检索索引管理器
+    Manajer Indeks Pencarian BM25
 
-    负责构建、搜索和管理 BM25 索引。
-    使用 jieba 分词以支持中文检索。
+    Bertanggung jawab untuk membangun, mencari, dan mengelola indeks BM25.
+    Menggunakan tokenisasi jieba untuk mendukung pencarian bahasa Mandarin.
     """
 
     def __init__(self):
@@ -29,16 +29,16 @@ class BM25IndexManager:
         self.raw_corpus = []
 
     def build_index(self, documents, doc_ids):
-        """构建 BM25 索引"""
+        """Membangun indeks BM25"""
         self.raw_corpus = documents
         self.doc_mapping = {i: doc_id for i, doc_id in enumerate(doc_ids)}
         self.tokenized_corpus = [list(jieba.cut(doc)) for doc in documents]
         self.bm25_index = BM25Okapi(self.tokenized_corpus)
-        logging.info(f"BM25 索引构建完成，共索引 {len(documents)} 个文档")
+        logging.info(f"Pembangunan indeks BM25 selesai, total mengindeks {len(documents)} dokumen")
         return True
 
     def search(self, query, top_k=5):
-        """使用 BM25 检索相关文档"""
+        """Menggunakan BM25 untuk mencari dokumen relevan"""
         if not self.bm25_index:
             return []
 

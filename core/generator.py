@@ -1,10 +1,10 @@
 """
-LLM 调用 —— 大模型回答生成（Ollama + SiliconFlow）
+Panggilan LLM —— Pembuatan Jawaban Model Besar (Ollama + SiliconFlow)
 
-学习要点：
-- Prompt Engineering：如何构建高质量的提示词模板
-- 流式输出 vs 非流式输出的区别
-- 多模型适配：本地 Ollama 和云端 SiliconFlow API 的对接
+Poin Pembelajaran:
+- Prompt Engineering: Cara membangun templat prompt berkualitas tinggi
+- Perbedaan antara output streaming vs non-streaming
+- Adaptasi multi-model: Integrasi Ollama lokal dan API SiliconFlow cloud
 """
 
 import json
@@ -22,10 +22,10 @@ from features.thinking_chain import process_thinking_content
 
 
 def call_siliconflow_api(prompt, temperature=0.7, max_tokens=1024):
-    """调用 SiliconFlow 云端 API 获取回答"""
+    """Memanggil antarmuka SiliconFlow Cloud untuk mendapatkan jawaban"""
     if not SILICONFLOW_API_KEY:
-        logging.error("未设置 SILICONFLOW_API_KEY")
-        return "错误：未配置 SiliconFlow API 密钥。"
+        logging.error("SILICONFLOW_API_KEY tidak diatur")
+        return "Kesalahan: Kunci API SiliconFlow tidak dikonfigurasi."
 
     try:
         payload = {
@@ -52,18 +52,18 @@ def call_siliconflow_api(prompt, temperature=0.7, max_tokens=1024):
             if reasoning:
                 return f"{content}<think>{reasoning}</think>"
             return content
-        return "API返回结果格式异常"
+        return "Format hasil pengembalian API tidak normal"
 
     except requests.exceptions.RequestException as e:
-        logging.error(f"调用SiliconFlow API时出错: {str(e)}")
-        return f"调用API时出错: {str(e)}"
+        logging.error(f"Terjadi kesalahan saat memanggil SiliconFlow API: {str(e)}")
+        return f"Terjadi kesalahan saat memanggil API: {str(e)}"
     except Exception as e:
-        logging.error(f"SiliconFlow API 未知错误: {str(e)}")
-        return f"发生未知错误: {str(e)}"
+        logging.error(f"Kesalahan tidak diketahui pada SiliconFlow API: {str(e)}")
+        return f"Terjadi kesalahan tidak diketahui: {str(e)}"
 
 
 def call_llm_simple(prompt, model_choice="siliconflow"):
-    """简单的 LLM 调用（用于递归检索中的查询改写判断）"""
+    """Panggilan LLM sederhana (digunakan untuk penentuan penulisan ulang kueri dalam pencarian rekursif)"""
     if model_choice == "siliconflow":
         result = call_siliconflow_api(prompt)
         result = result.strip() if isinstance(result, str) else result[0].strip()
@@ -81,52 +81,52 @@ def call_llm_simple(prompt, model_choice="siliconflow"):
 
 def _build_prompt(question, context, enable_web_search, knowledge_base_exists,
                   time_sensitive, conflict_detected):
-    """构建提示词"""
-    prompt_template = """作为一个专业的问答助手，你需要基于以下{context_type}回答用户问题。
+    """Membangun prompt"""
+    prompt_template = """Sebagai asisten tanya jawab profesional, Anda perlu menjawab pertanyaan pengguna berdasarkan {context_type} berikut.
 
-提供的参考内容：
+Konten referensi yang disediakan:
 {context}
 
-用户问题：{question}
+Pertanyaan Pengguna: {question}
 
-请遵循以下回答原则：
-1. 仅基于提供的参考内容回答问题，不要使用你自己的知识
-2. 如果参考内容中没有足够信息，请坦诚告知你无法回答
-3. 回答应该全面、准确、有条理，并使用适当的段落和结构
-4. 请用中文回答
-5. 在回答末尾标注信息来源{time_instruction}{conflict_instruction}
+Harap ikuti prinsip-prinsip jawaban berikut:
+1. Hanya jawab pertanyaan berdasarkan konten referensi yang disediakan, jangan gunakan pengetahuan Anda sendiri
+2. Jika konten referensi tidak berisi informasi yang cukup, harap beri tahu dengan jujur bahwa Anda tidak dapat menjawab
+3. Jawaban harus komprehensif, akurat, terstruktur, dan menggunakan paragraf serta struktur yang sesuai
+4. Harap berikan jawaban dalam Bahasa Indonesia, kecuali jika pengguna bertanya dalam Bahasa Inggris (dalam hal ini harap gunakan Bahasa Inggris)
+5. Tandai sumber informasi di akhir jawaban{time_instruction}{conflict_instruction}
 
-请现在开始回答："""
+Silakan mulai menjawab sekarang:"""
 
     return prompt_template.format(
-        context_type="本地文档和网络搜索结果" if enable_web_search and knowledge_base_exists else (
-            "网络搜索结果" if enable_web_search else "本地文档"),
+        context_type="dokumen lokal dan hasil pencarian internet" if enable_web_search and knowledge_base_exists else (
+            "hasil pencarian internet" if enable_web_search else "dokumen lokal"),
         context=context if context else (
-            "网络搜索结果将用于回答。" if enable_web_search and not knowledge_base_exists else "知识库为空或未找到相关内容。"),
+            "Hasil pencarian internet akan digunakan untuk menjawab." if enable_web_search and not knowledge_base_exists else "Basis pengetahuan kosong atau konten relevan tidak ditemukan."),
         question=question,
-        time_instruction="，优先使用最新的信息" if time_sensitive and enable_web_search else "",
-        conflict_instruction="，并明确指出不同来源的差异" if conflict_detected else ""
+        time_instruction=", prioritaskan penggunaan informasi terbaru" if time_sensitive and enable_web_search else "",
+        conflict_instruction=", dan tunjukkan dengan jelas perbedaan antara berbagai sumber" if conflict_detected else ""
     )
 
 
 def _build_context(all_contexts, all_doc_ids, all_metadata, enable_web_search):
-    """构建上下文和来源信息"""
+    """Membangun konteks dan informasi sumber"""
     context_parts = []
     sources_for_conflict = []
 
     for doc, doc_id, metadata in zip(all_contexts, all_doc_ids, all_metadata):
-        source_type = metadata.get('source', '本地文档')
+        source_type = metadata.get('source', 'Dokumen Lokal')
         source_item = {'text': doc, 'type': source_type}
 
         if source_type == 'web':
-            url = metadata.get('url', '未知URL')
-            title = metadata.get('title', '未知标题')
-            context_parts.append(f"[网络来源: {title}] (URL: {url})\n{doc}")
+            url = metadata.get('url', 'URL tidak diketahui')
+            title = metadata.get('title', 'Judul tidak diketahui')
+            context_parts.append(f"[Sumber Internet: {title}] (URL: {url})\n{doc}")
             source_item['url'] = url
             source_item['title'] = title
         else:
-            source = metadata.get('source', '未知来源')
-            context_parts.append(f"[本地文档: {source}]\n{doc}")
+            source = metadata.get('source', 'Sumber tidak diketahui')
+            context_parts.append(f"[Dokumen Lokal: {source}]\n{doc}")
             source_item['source'] = source
 
         sources_for_conflict.append(source_item)
@@ -136,17 +136,17 @@ def _build_context(all_contexts, all_doc_ids, all_metadata, enable_web_search):
 
 def query_answer(question, enable_web_search=False, model_choice="siliconflow", progress=None):
     """
-    问答处理主流程（非流式）
+    Alur utama pemrosesan tanya jawab (non-streaming)
 
     完整流程：递归检索 → 构建上下文 → 矛盾检测 → 构建Prompt → LLM生成
     """
     try:
         knowledge_base_exists = vector_store.is_ready
         if not knowledge_base_exists and not enable_web_search:
-            return "⚠️ 知识库为空，请先上传文档。"
+            return "⚠️ Basis pengetahuan kosong, silakan unggah dokumen terlebih dahulu."
 
         if progress:
-            progress(0.3, desc="执行递归检索...")
+            progress(0.3, desc="Menjalankan pencarian rekursif...")
 
         all_contexts, all_doc_ids, all_metadata = recursive_retrieval(
             initial_query=question, enable_web_search=enable_web_search, model_choice=model_choice
@@ -154,13 +154,13 @@ def query_answer(question, enable_web_search=False, model_choice="siliconflow", 
 
         context, sources = _build_context(all_contexts, all_doc_ids, all_metadata, enable_web_search)
         conflict_detected = detect_conflicts(sources)
-        time_sensitive = any(w in question for w in ["最新", "今年", "当前", "最近", "刚刚"])
+        time_sensitive = any(w in question.lower() for w in ["terbaru", "tahun ini", "saat ini", "baru-baru ini", "baru saja"])
 
         prompt = _build_prompt(question, context, enable_web_search,
                                knowledge_base_exists, time_sensitive, conflict_detected)
 
         if progress:
-            progress(0.8, desc="生成回答...")
+            progress(0.8, desc="Menghasilkan jawaban...")
 
         if model_choice == "siliconflow":
             result = call_siliconflow_api(prompt, temperature=0.7, max_tokens=1536)
@@ -171,26 +171,26 @@ def query_answer(question, enable_web_search=False, model_choice="siliconflow", 
                 timeout=180, headers={'Connection': 'close'}
             )
             response.raise_for_status()
-            result = str(response.json().get("response", "未获取到有效回答"))
+            result = str(response.json().get("response", "Gagal mendapatkan jawaban yang valid"))
 
         return process_thinking_content(result)
 
     except json.JSONDecodeError:
-        return "响应解析失败，请重试"
+        return "Gagal mengurai respons, silakan coba lagi"
     except Exception as e:
-        return f"系统错误: {str(e)}"
+        return f"Kesalahan sistem: {str(e)}"
 
 
 def stream_answer(question, enable_web_search=False, model_choice="siliconflow", progress=None):
-    """问答处理主流程（流式，用于 Gradio generator 模式）"""
+    """Alur utama pemrosesan tanya jawab (streaming, digunakan untuk mode generator Gradio)"""
     try:
         knowledge_base_exists = vector_store.is_ready
         if not knowledge_base_exists and not enable_web_search:
-            yield "⚠️ 知识库为空，请先上传文档。", "遇到错误"
+            yield "⚠️ Basis pengetahuan kosong, silakan unggah dokumen terlebih dahulu.", "Terjadi kesalahan"
             return
 
         if progress:
-            progress(0.3, desc="执行递归检索...")
+            progress(0.3, desc="Menjalankan pencarian rekursif...")
 
         all_contexts, all_doc_ids, all_metadata = recursive_retrieval(
             initial_query=question, enable_web_search=enable_web_search, model_choice=model_choice
@@ -198,14 +198,14 @@ def stream_answer(question, enable_web_search=False, model_choice="siliconflow",
 
         context, sources = _build_context(all_contexts, all_doc_ids, all_metadata, enable_web_search)
         conflict_detected = detect_conflicts(sources)
-        time_sensitive = any(w in question for w in ["最新", "今年", "当前", "最近", "刚刚"])
+        time_sensitive = any(w in question.lower() for w in ["terbaru", "tahun ini", "saat ini", "baru-baru ini", "baru saja"])
 
         prompt = _build_prompt(question, context, enable_web_search,
                                knowledge_base_exists, time_sensitive, conflict_detected)
 
         if model_choice == "siliconflow":
             full_answer = call_siliconflow_api(prompt, temperature=0.7, max_tokens=1536)
-            yield process_thinking_content(full_answer), "完成!"
+            yield process_thinking_content(full_answer), "Selesai!"
         else:
             response = get_session().post(
                 "http://localhost:11434/api/generate",
@@ -218,11 +218,11 @@ def stream_answer(question, enable_web_search=False, model_choice="siliconflow",
                     chunk = json.loads(line.decode()).get("response", "")
                     full_answer += chunk
                     if "<think>" in full_answer and "</think>" in full_answer:
-                        yield process_thinking_content(full_answer), "生成回答中..."
+                        yield process_thinking_content(full_answer), "Menghasilkan jawaban..."
                     else:
-                        yield full_answer, "生成回答中..."
+                        yield full_answer, "Menghasilkan jawaban..."
 
-            yield process_thinking_content(full_answer), "完成!"
+            yield process_thinking_content(full_answer), "Selesai!"
 
     except Exception as e:
-        yield f"系统错误: {str(e)}", "遇到错误"
+        yield f"Kesalahan sistem: {str(e)}", "Terjadi kesalahan"

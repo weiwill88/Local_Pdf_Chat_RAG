@@ -1,10 +1,10 @@
 """
-配置中心 —— 环境变量加载、模型参数、自动检测机制
+Pusat Konfigurasi —— Pemuatan variabel lingkungan, parameter model, mekanisme deteksi otomatis
 
-学习要点：
-- 了解如何通过 .env 文件管理敏感配置（API Key）
-- 了解 RAG 系统中的关键超参数及其作用
-- 理解 LLM 后端的自动检测与回退机制
+Poin Pembelajaran:
+- Memahami cara mengelola konfigurasi sensitif (API Key) melalui file .env
+- Memahami hyperparameter kunci dalam sistem RAG beserta fungsinya
+- Memahami mekanisme deteksi otomatis dan rollback pada backend LLM
 """
 
 import os
@@ -14,17 +14,17 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 第一步：加载环境变量
-# 优先加载 .env（用户配置），不存在则回退到 example.env（示例配置）
+# Langkah 1: Memuat variabel lingkungan
+# Memuat .env (konfigurasi pengguna) terlebih dahulu, jika tidak ada maka kembali ke example.env (konfigurasi contoh)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 dotenv_path = Path(__file__).parent / ".env"
 if not dotenv_path.exists():
     dotenv_path = Path(__file__).parent / "example.env"
-    logging.warning("⚠️ 未找到 .env 文件，已回退加载 example.env。建议：cp example.env .env 并填入真实 API Key")
+    logging.warning("⚠️ File .env tidak ditemukan, memuat example.env sebagai cadangan. Saran: cp example.env .env dan masukkan API Key yang sebenarnya")
 load_dotenv(dotenv_path)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 第二步：API 密钥配置
+# Langkah 2: Konfigurasi API Key
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SERPAPI_KEY = os.getenv("SERPAPI_KEY")
 SEARCH_ENGINE = "google"
@@ -36,25 +36,25 @@ SILICONFLOW_API_URL = os.getenv(
 )
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 第三步：模型名称配置
-# Ollama 格式: deepseek-r1:8b | SiliconFlow 格式: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+# Langkah 3: Konfigurasi Nama Model
+# Format Ollama: deepseek-r1:8b | Format SiliconFlow: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OLLAMA_MODEL_NAME = os.getenv("OLLAMA_MODEL_NAME", "deepseek-r1:8b")
 SILICONFLOW_MODEL_NAME = os.getenv("SILICONFLOW_MODEL_NAME", "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B")
 RERANK_METHOD = os.getenv("RERANK_METHOD", "cross_encoder")
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 第四步：RAG 超参数
+# Langkah 4: Hyperparameter RAG
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-CHUNK_SIZE = 400          # 文本分块大小（字符数）
-CHUNK_OVERLAP = 40        # 相邻分块的重叠字符数
-HYBRID_ALPHA = 0.7        # 混合检索中语义检索的权重（0-1）
-RETRIEVAL_TOP_K = 10      # 检索返回的候选文档数量
-RERANK_TOP_K = 5          # 重排序后保留的文档数量
-MAX_RETRIEVAL_ITERATIONS = 3  # 递归检索的最大迭代轮数
+CHUNK_SIZE = 400          # Ukuran blok teks (jumlah karakter)
+CHUNK_OVERLAP = 40        # Jumlah karakter tumpang tindih antar blok yang berdekatan
+HYBRID_ALPHA = 0.7        # Bobot pencarian semantik dalam pencarian hibrida (0-1)
+RETRIEVAL_TOP_K = 10      # Jumlah dokumen kandidat yang dikembalikan oleh pencarian
+RERANK_TOP_K = 5          # Jumlah dokumen yang dipertahankan setelah pengurutan ulang
+MAX_RETRIEVAL_ITERATIONS = 3  # Jumlah iterasi maksimum untuk pencarian rekursif
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 第五步：运行时环境配置
+# Langkah 5: Konfigurasi Lingkungan Runtime
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
@@ -62,30 +62,30 @@ os.environ['NO_PROXY'] = 'localhost,127.0.0.1'
 requests.adapters.DEFAULT_RETRIES = 3
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 第六步：LLM 后端自动检测
+# Langkah 6: Deteksi Otomatis Backend LLM
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def detect_default_model():
     """
-    自动检测可用的 LLM 后端，返回默认模型选择
+    Mendeteksi secara otomatis backend LLM yang tersedia, mengembalikan pilihan model default
 
-    检测优先级：
-    1. SiliconFlow API Key 已配置 → 默认使用云端 API
-    2. 本地 Ollama 服务可用 → 默认使用本地模型
-    3. 都不可用 → 返回 siliconflow 并提示用户配置
+    Prioritas Deteksi:
+    1. SiliconFlow API Key telah dikonfigurasi → Default menggunakan API cloud
+    2. Layanan Ollama lokal tersedia → Default menggunakan model lokal
+    3. Keduanya tidak tersedia → Mengembalikan siliconflow dan meminta pengguna untuk mengonfigurasi
     """
     if SILICONFLOW_API_KEY and SILICONFLOW_API_KEY.strip() and not SILICONFLOW_API_KEY.startswith("Your"):
-        logging.info("✅ 检测到 SiliconFlow API Key，默认使用云端模型")
+        logging.info("✅ Terdeteksi SiliconFlow API Key, menggunakan model cloud secara default")
         return "siliconflow"
 
     try:
         response = requests.get("http://localhost:11434/api/tags", timeout=3)
         if response.status_code == 200:
-            logging.info("✅ 检测到本地 Ollama 服务，默认使用本地模型")
+            logging.info("✅ Terdeteksi layanan Ollama lokal, menggunakan model lokal secara default")
             return "ollama"
     except Exception:
         pass
 
-    logging.warning("⚠️ 未检测到可用 LLM 后端，请配置 SiliconFlow API Key 或启动 Ollama")
+    logging.warning("⚠️ Backend LLM yang aktif tidak terdeteksi, silakan konfigurasi SiliconFlow API Key atau jalankan Ollama")
     return "siliconflow"
 
 DEFAULT_MODEL_CHOICE = detect_default_model()

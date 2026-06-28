@@ -1,9 +1,9 @@
 """
-思维链处理 —— DeepSeek-R1 思维链标签的格式化
+Pemrosesan Chain of Thought (Berpikir Runtut) —— Pemformatan Tag Chain of Thought DeepSeek-R1
 
-学习要点：
-- DeepSeek-R1 模型会在回答中输出 <think>...</think> 标签，包含推理过程
-- 本模块将思维链内容转换为可折叠的 HTML 详情框
+Poin Pembelajaran:
+- Model DeepSeek-R1 akan mengeluarkan tag <think>...</think> dalam jawabannya yang berisi proses penalaran
+- Modul ini mengonversi konten chain of thought menjadi kotak detail HTML yang dapat dilipat
 """
 
 import logging
@@ -11,9 +11,9 @@ import logging
 
 def process_thinking_content(text):
     """
-    处理包含 <think> 标签的内容，将其转换为可折叠的 HTML 格式
+    Memproses konten yang mengandung tag <think>, mengonversinya menjadi format HTML yang dapat dilipat
 
-    将 <think>推理过程</think> 转换为 <details> 可折叠标签。
+    Mengonversi <think>proses penalaran</think> menjadi tag dapat dilipat <details>.
     """
     if text is None:
         return ""
@@ -21,7 +21,7 @@ def process_thinking_content(text):
         try:
             processed_text = str(text)
         except:
-            return "无法处理的内容格式"
+            return "Format konten tidak dapat diproses"
     else:
         processed_text = text
 
@@ -35,7 +35,7 @@ def process_thinking_content(text):
                 after = processed_text[end_idx + 8:]
                 processed_text = (
                     before +
-                    "\n\n<details>\n<summary>思考过程（点击展开）</summary>\n\n" +
+                    "\n\n<details>\n<summary>Proses Berpikir (Klik untuk memperluas)</summary>\n\n" +
                     thinking_content +
                     "\n\n</details>\n\n" +
                     after
@@ -64,10 +64,10 @@ def process_thinking_content(text):
 
         processed_text = "".join(processed_html)
     except Exception as e:
-        logging.error(f"处理思维链内容时出错: {str(e)}")
+        logging.error(f"Terjadi kesalahan saat memproses konten chain of thought: {str(e)}")
         try:
             return text.replace("<", "&lt;").replace(">", "&gt;")
         except:
-            return "处理内容时出错"
+            return "Terjadi kesalahan saat memproses konten"
 
     return processed_text

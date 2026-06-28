@@ -1,5 +1,5 @@
 """
-网络工具 —— HTTP Session 管理、端口检测
+Utilitas Jaringan —— Manajemen Sesi HTTP, Deteksi Port
 """
 
 import socket
@@ -11,7 +11,7 @@ _session = None
 
 
 def get_session():
-    """获取带重试机制的 HTTP Session（单例）"""
+    """Mendapatkan HTTP Session dengan mekanisme coba ulang (Singleton)"""
     global _session
     if _session is None:
         _session = requests.Session()
@@ -25,7 +25,7 @@ def get_session():
 
 
 def is_port_available(port):
-    """检测端口是否可用"""
+    """Memeriksa apakah port tersedia"""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(1)
         return s.connect_ex(('127.0.0.1', port)) != 0

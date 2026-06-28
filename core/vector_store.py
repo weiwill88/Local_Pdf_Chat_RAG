@@ -1,12 +1,12 @@
 """
-向量存储 —— FAISS 向量索引管理
+Penyimpanan Vektor (Vector Store) —— Manajemen Indeks Vektor FAISS
 
-学习要点：
-- FAISS (Facebook AI Similarity Search) 是高效的向量相似度检索库
-- IndexFlatL2: 暴力搜索，精确但慢。适合小数据集（<1万）
-- IndexIVFFlat: 倒排索引，先聚类再搜索。适合中等数据集
-- IndexIVFPQ: 乘积量化，牺牲精度换效率。适合大数据集（>10万）
-- 本项目根据向量数量自动选择最优索引类型
+Poin Pembelajaran:
+- FAISS (Facebook AI Similarity Search) adalah pustaka pencarian kemiripan vektor yang efisien
+- IndexFlatL2: Pencarian brute force, presisi tetapi lambat. Cocok untuk himpunan data kecil (<10 ribu)
+- IndexIVFFlat: Indeks terbalik (Inverted File Index), melakukan pengelompokan (clustering) sebelum mencari. Cocok untuk himpunan data sedang
+- IndexIVFPQ: Kuantisasi produk (Product Quantization), mengorbankan akurasi demi efisiensi. Cocok untuk himpunan data besar (>100 ribu)
+- Proyek ini secara otomatis memilih tipe indeks optimal berdasarkan jumlah vektor
 """
 
 import logging
@@ -16,12 +16,12 @@ from faiss import IndexFlatL2, IndexIVFFlat, IndexIVFPQ
 
 class AutoFaissIndex:
     """
-    自动选择 FAISS 索引类型的封装类
+    Kelas pembungkus untuk pemilihan tipe indeks FAISS secara otomatis
 
-    根据数据量自动选择最优索引类型：
-    - 小数据集（<1万）: FlatL2（精确搜索）
-    - 中等数据集（1万-10万）: IVFFlat（近似搜索）
-    - 大数据集（>10万）: IVFPQ（高效近似搜索）
+    Secara otomatis memilih tipe indeks optimal berdasarkan jumlah data:
+    - Himpunan data kecil (<10 ribu): FlatL2 (pencarian presisi)
+    - Himpunan data sedang (10 ribu - 100 ribu): IVFFlat (pencarian perkiraan)
+    - Himpunan data besar (>100 ribu): IVFPQ (pencarian perkiraan efisiensi tinggi)
     """
 
     def __init__(self, dimension=384):
@@ -39,7 +39,7 @@ class AutoFaissIndex:
         return self.index.ntotal if self.index else 0
 
     def select_index_type(self, num_vectors):
-        """根据向量数量自动选择最优索引类型"""
+        """Secara otomatis memilih tipe indeks optimal berdasarkan jumlah vektor"""
         if num_vectors <= self.small_dataset_threshold:
             self.index_type = "FlatL2"
             self.index = IndexFlatL2(self.dimension)
@@ -58,7 +58,7 @@ class AutoFaissIndex:
             self.index = IndexIVFPQ(quantizer, self.dimension, self.nlist, self.m, 8)
             self.nprobe = min(32, max(1, int(self.nlist * 0.05)))
 
-        logging.info(f"选择索引类型: {self.index_type}，向量数: {num_vectors}")
+        logging.info(f"Tipe indeks terpilih: {self.index_type}, Jumlah vektor: {num_vectors}")
         return self.index_type
 
     def train(self, vectors):
@@ -84,10 +84,10 @@ class AutoFaissIndex:
 
 class VectorStore:
     """
-    向量存储管理器
+    Manajer Penyimpanan Vektor
 
-    封装 FAISS 索引及其关联的文档内容和元数据映射。
-    解决原代码中 4 个全局变量的管理问题。
+    Membungkus indeks FAISS beserta konten dokumen dan pemetaan metadata terkait.
+    Menyelesaikan masalah pengelolaan 4 variabel global pada kode asli.
     """
 
     def __init__(self):
@@ -98,13 +98,13 @@ class VectorStore:
 
     def build_index(self, chunks, chunk_ids, metadatas, embeddings):
         """
-        构建 FAISS 索引
+        Membangun indeks FAISS
 
         Args:
-            chunks: 文本片段列表
-            chunk_ids: 片段 ID 列表
-            metadatas: 元数据列表
-            embeddings: 向量数组 (numpy, float32)
+            chunks: Daftar fragmen teks
+            chunk_ids: Daftar ID fragmen
+            metadatas: Daftar metadata
+            embeddings: Array vektor (numpy, float32)
         """
         dimension = embeddings.shape[1]
         num_vectors = len(chunks)
@@ -119,11 +119,11 @@ class VectorStore:
 
         auto_index.add(embeddings)
         self.index = auto_index
-        logging.info(f"FAISS 索引构建完成，共 {self.index.ntotal} 个文本块，类型: {auto_index.index_type}")
+        logging.info(f"Pembangunan indeks FAISS selesai, total {self.index.ntotal} blok teks, Tipe: {auto_index.index_type}")
 
     def search(self, query_embedding, k=10):
         """
-        搜索最相似的向量
+        Mencari vektor paling mirip
 
         Returns:
             (docs, doc_ids, metadatas)
@@ -142,7 +142,7 @@ class VectorStore:
                         metadatas.append(self.metadatas_map.get(original_id, {}))
             return docs, doc_ids, metadatas
         except Exception as e:
-            logging.error(f"FAISS 检索错误: {str(e)}")
+            logging.error(f"Kesalahan pencarian FAISS: {str(e)}")
             return [], [], []
 
     @property
@@ -158,7 +158,7 @@ class VectorStore:
         self.contents_map.clear()
         self.metadatas_map.clear()
         self.id_order.clear()
-        logging.info("向量存储已清空")
+        logging.info("Penyimpanan vektor telah dikosongkan")
 
 
 # 模块级单例

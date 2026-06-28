@@ -1,10 +1,10 @@
 """
-检索器 —— 混合检索 + 递归检索策略
+Pencari (Retriever) —— Pencarian Hibrida + Strategi Pencarian Rekursif
 
-学习要点：
-- 混合检索（Hybrid Search）结合语义检索和关键词检索的优势
-- alpha 参数控制两者权重（0.7 = 70% 语义 + 30% 关键词）
-- 递归检索通过多轮迭代，利用 LLM 改写查询获取更全面的信息
+Poin Pembelajaran:
+- Pencarian Hibrida (Hybrid Search) menggabungkan keunggulan pencarian semantik dan pencarian kata kunci
+- Parameter alpha mengontrol bobot keduanya (0.7 = 70% semantik + 30% kata kunci)
+- Pencarian rekursif melalui beberapa putaran iterasi menggunakan LLM untuk menulis ulang kueri guna mendapatkan informasi yang lebih komprehensif
 """
 
 import logging
@@ -18,17 +18,17 @@ from features.web_search import check_serpapi_key, search_web
 
 def hybrid_merge(semantic_results, bm25_results, alpha=None):
     """
-    合并语义检索和 BM25 检索结果
+    Menggabungkan hasil pencarian semantik dan pencarian BM25
 
-    使用加权分数：语义分数 × alpha + BM25分数 × (1-alpha)
+    Menggunakan skor terbobot: Skor Semantik × alpha + Skor BM25 × (1-alpha)
 
     Args:
         semantic_results: {'ids': [[...]], 'documents': [[...]], 'metadatas': [[...]]}
         bm25_results: [{'id': ..., 'score': ..., 'content': ...}]
-        alpha: 语义检索权重
+        alpha: Bobot pencarian semantik
 
     Returns:
-        排序后的 [(doc_id, {'score': ..., 'content': ..., 'metadata': ...})]
+        [(doc_id, {'score': ..., 'content': ..., 'metadata': ...})] yang diurutkan
     """
     if alpha is None:
         alpha = HYBRID_ALPHA
@@ -49,7 +49,7 @@ def hybrid_merge(semantic_results, bm25_results, alpha=None):
             score = 1.0 - (i / max(1, num_results))
             merged_dict[doc_id] = {'score': alpha * score, 'content': doc, 'metadata': meta}
     else:
-        logging.warning("语义检索结果为空或格式异常")
+        logging.warning("Hasil pencarian semantik kosong atau format tidak normal")
 
     # 处理 BM25 结果
     if not bm25_results:
@@ -78,9 +78,9 @@ def hybrid_merge(semantic_results, bm25_results, alpha=None):
 
 def recursive_retrieval(initial_query, max_iterations=None, enable_web_search=False, model_choice="siliconflow"):
     """
-    递归检索与查询优化
+    Pencarian rekursif dan optimasi kueri
 
-    流程：1.语义+BM25检索 → 2.混合排序 → 3.重排序 → 4.LLM判断是否改写query继续
+    Alur: 1.Pencarian Semantik + BM25 → 2.Pengurutan Hibrida → 3.Pengurutan Ulang (Rerank) → 4.Penilaian LLM apakah kueri perlu ditulis ulang untuk melanjutkan
 
     Returns:
         (all_contexts, all_doc_ids, all_metadata)
@@ -92,16 +92,16 @@ def recursive_retrieval(initial_query, max_iterations=None, enable_web_search=Fa
     all_contexts, all_doc_ids, all_metadata = [], [], []
 
     for i in range(max_iterations):
-        logging.info(f"递归检索 {i + 1}/{max_iterations}，当前 Query: {query}")
+        logging.info(f"Pencarian rekursif {i + 1}/{max_iterations}, Kueri saat ini: {query}")
 
         # 网络搜索补充
         web_texts = []
         if enable_web_search and check_serpapi_key():
             try:
                 for res in search_web(query):
-                    web_texts.append(f"标题：{res.get('title', '')}\n摘要：{res.get('snippet', '')}")
+                    web_texts.append(f"Judul: {res.get('title', '')}\nAbstrak: {res.get('snippet', '')}")
             except Exception as e:
-                logging.error(f"网络搜索出错: {str(e)}")
+                logging.error(f"Terjadi kesalahan pada pencarian web: {str(e)}")
 
         # 语义检索
         query_embedding = encode_query(query)
@@ -124,7 +124,7 @@ def recursive_retrieval(initial_query, max_iterations=None, enable_web_search=Fa
             try:
                 reranked = rerank_results(query, docs_iter, ids_iter, meta_iter, top_k=RERANK_TOP_K)
             except Exception as e:
-                logging.error(f"重排序失败: {str(e)}")
+                logging.error(f"Pengurutan ulang gagal: {str(e)}")
                 reranked = [(did, {'content': d, 'metadata': m, 'score': 1.0})
                             for did, d, m in zip(ids_iter, docs_iter, meta_iter)]
         else:
@@ -145,31 +145,31 @@ def recursive_retrieval(initial_query, max_iterations=None, enable_web_search=Fa
         # LLM 判断是否需要继续
         if current_contexts:
             summary = "\n".join(current_contexts[:3])
-            prompt = f"""你是一个查询优化助手。根据以下信息判断是否需要新的查询。
+            prompt = f"""Anda adalah asisten optimasi kueri. Nilai apakah kueri baru diperlukan berdasarkan informasi berikut.
 
-[初始问题]
+[Pertanyaan Awal]
 {initial_query}
 
-[检索结果摘要]
+[Ringkasan Hasil Pencarian]
 {summary}
 
-要求：
-1. 如果信息已足够，直接回复：不需要进一步查询
-2. 否则返回一个更精准的新查询，仅包含查询词
+Persyaratan:
+1. Jika informasi sudah cukup, langsung jawab: tidak perlu kueri lebih lanjut
+2. Jika tidak, kembalikan kueri baru yang lebih presisi, hanya berisi kata pencarian saja
 """
             try:
                 from core.generator import call_llm_simple
                 next_query = call_llm_simple(prompt, model_choice)
-                if "不需要" in next_query:
-                    logging.info("LLM 判断无需更多查询")
+                if "tidak perlu" in next_query.lower() or "不需要" in next_query:
+                    logging.info("LLM menilai tidak perlu kueri tambahan")
                     break
                 if len(next_query) > 100:
-                    logging.warning("生成内容过长，不视为有效查询")
+                    logging.warning("Konten yang dihasilkan terlalu panjang, tidak dianggap sebagai kueri yang valid")
                     break
                 query = next_query
-                logging.info(f"生成下一轮查询: {query}")
+                logging.info(f"Menghasilkan kueri putaran berikutnya: {query}")
             except Exception as e:
-                logging.error(f"生成新查询失败: {str(e)}")
+                logging.error(f"Gagal menghasilkan kueri baru: {str(e)}")
                 break
         else:
             break

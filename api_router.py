@@ -1,5 +1,5 @@
 """
-REST API 模块（使用FastAPI实现）
+Modul REST API (Diimplementasikan menggunakan FastAPI)
 """
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,14 +36,14 @@ class ProgressCallback:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("API 服务启动")
+    logger.info("Layanan API dimulai")
     yield
-    logger.info("API 服务已关闭")
+    logger.info("Layanan API telah ditutup")
 
 
 app = FastAPI(
-    title="本地RAG API服务",
-    description="提供基于本地大模型和SERPAPI的文档问答API接口",
+    title="Layanan API RAG Lokal",
+    description="Menyediakan antarmuka API tanya jawab dokumen berdasarkan model bahasa besar lokal dan SERPAPI",
     version="2.0.0",
     lifespan=lifespan
 )
@@ -75,7 +75,7 @@ class FileProcessResult(BaseModel):
 
 @app.post("/api/upload", response_model=FileProcessResult)
 async def upload_file(file: UploadFile = File(...)):
-    """处理文档并存入向量数据库"""
+    """Memproses dokumen dan menyimpannya ke dalam database vektor"""
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as tmp:
             content = await file.read()
@@ -93,28 +93,28 @@ async def upload_file(file: UploadFile = File(...)):
 
         os.unlink(tmp_path)
         result = result_text[0] if isinstance(result_text, tuple) else result_text
-        chunk_match = re.search(r'(\d+) 个文本块', result)
+        chunk_match = re.search(r'(\d+) blok teks', result)
         chunks = int(chunk_match.group(1)) if chunk_match else 0
 
         return {
-            "status": "success" if "成功" in result else "error",
+            "status": "success" if "berhasil" in result.lower() else "error",
             "message": result,
             "file_info": {"filename": file.filename, "chunks": chunks}
         }
     except Exception as e:
-        logger.error(f"文件处理失败: {str(e)}")
-        raise HTTPException(500, f"文档处理失败: {str(e)}") from e
+        logger.error(f"Gagal memproses file: {str(e)}")
+        raise HTTPException(500, f"Gagal memproses dokumen: {str(e)}") from e
 
 
 @app.post("/api/ask", response_model=AnswerResponse)
 async def ask_question(req: QuestionRequest):
-    """问答接口"""
+    """Antarmuka Tanya Jawab"""
     if not req.question:
-        raise HTTPException(400, "问题不能为空")
+        raise HTTPException(400, "Pertanyaan tidak boleh kosong")
     try:
         answer = await asyncio.to_thread(query_answer, req.question, req.enable_web_search, req.model_choice)
         sources = []
-        url_matches = re.findall(r'\[(网络来源|本地文档):[^\]]+\]\s*(?:\(URL:\s*([^)]+)\))?', answer)
+        url_matches = re.findall(r'\[(Sumber Internet|Dokumen Lokal):[^\]]+\]\s*(?:\(URL:\s*([^)]+)\))?', answer)
         for source_type, url in url_matches:
             sources.append({"type": source_type, "url": url} if url else {"type": source_type})
 
@@ -123,8 +123,8 @@ async def ask_question(req: QuestionRequest):
             "metadata": {"enable_web_search": req.enable_web_search, "model": req.model_choice}
         }
     except Exception as e:
-        logger.error(f"问答失败: {str(e)}")
-        raise HTTPException(500, f"问答处理失败: {str(e)}") from e
+        logger.error(f"Tanya jawab gagal: {str(e)}")
+        raise HTTPException(500, f"Gagal memproses tanya jawab: {str(e)}") from e
 
 
 @app.get("/api/status")
@@ -142,5 +142,5 @@ async def check_status():
 if __name__ == "__main__":
     import uvicorn
     port = next((p for p in [17995, 17996, 17997, 17998, 17999] if is_port_available(p)), 17995)
-    logger.info(f"启动API服务，端口: {port}")
+    logger.info(f"Menjalankan layanan API pada port: {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)

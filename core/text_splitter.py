@@ -1,10 +1,10 @@
 """
-文本分块器 —— 将长文本切分为检索友好的片段
+Pembagi Teks (Text Splitter) —— Memecah teks panjang menjadi fragmen yang ramah pencarian
 
-学习要点：
-- chunk_size：每个片段的最大字符数。过大则检索粒度粗，过小则上下文缺失
-- chunk_overlap：相邻片段的重叠字符数。避免关键信息被切断
-- separators：按优先级尝试的分割符。中文文档应包含中文标点
+Poin Pembelajaran:
+- chunk_size: Jumlah karakter maksimum per fragmen. Jika terlalu besar, granularitas pencarian menjadi kasar; jika terlalu kecil, konteks akan hilang
+- chunk_overlap: Jumlah karakter yang tumpang tindih antara fragmen yang berdekatan. Menghindari pemotongan informasi penting
+- separators: Pemisah yang dicoba berdasarkan prioritas. Dokumen Bahasa Mandarin harus menyertakan tanda baca Bahasa Mandarin
 """
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -13,18 +13,18 @@ from config import CHUNK_SIZE, CHUNK_OVERLAP
 
 def split_text(text, chunk_size=None, chunk_overlap=None):
     """
-    将长文本切分为多个片段
+    Memecah teks panjang menjadi beberapa fragmen
 
-    使用 RecursiveCharacterTextSplitter 递归切分：
-    先尝试按段落分割，若片段仍过大则按句子分割，以此类推。
+    Menggunakan RecursiveCharacterTextSplitter untuk pemecahan rekursif:
+    Pertama dicoba memecah berdasarkan paragraf, jika fragmen masih terlalu besar maka dipecah berdasarkan kalimat, dan seterusnya.
 
     Args:
-        text: 待切分的长文本
-        chunk_size: 每个片段的最大字符数（默认使用配置值 400）
-        chunk_overlap: 相邻片段的重叠字符数（默认使用配置值 40）
+        text: Teks panjang yang akan dipecah
+        chunk_size: Jumlah karakter maksimum per fragmen (default menggunakan nilai konfigurasi 400)
+        chunk_overlap: Jumlah karakter tumpang tindih antara fragmen yang berdekatan (default menggunakan nilai konfigurasi 40)
 
     Returns:
-        切分后的文本片段列表
+        Daftar fragmen teks setelah dipecah
     """
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size or CHUNK_SIZE,
