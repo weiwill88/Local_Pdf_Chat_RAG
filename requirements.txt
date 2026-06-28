@@ -1,6 +1,6 @@
 # 核心依赖
 gradio>=3.50.0
-pdfminer.six>=20221105
+docling
 sentence-transformers>=2.2.2
 faiss-cpu
 langchain-text-splitters

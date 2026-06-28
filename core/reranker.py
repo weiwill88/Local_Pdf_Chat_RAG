@@ -28,7 +28,7 @@ def get_cross_encoder():
                 try:
                     from sentence_transformers import CrossEncoder
                     _cross_encoder = CrossEncoder(
-                        'sentence-transformers/distiluse-base-multilingual-cased-v2'
+                        'BAAI/bge-reranker-base'
                     )
                     logging.info("Cross-Encoder berhasil dimuat")
                 except Exception as e:
