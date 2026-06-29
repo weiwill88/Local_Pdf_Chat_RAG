@@ -14,6 +14,7 @@ silakan baca modul demi modul sesuai dengan jalur pembelajaran di core/__init__.
 import os
 import time
 import re
+import hashlib
 import logging
 import webbrowser
 import gradio as gr
@@ -48,13 +49,34 @@ print("Gradio version:", gr.__version__)
 HEADING_PATTERN = re.compile(r"^(#{1,3})\s+(.+?)\s*$", re.MULTILINE)
 
 
-def extract_chunk_heading(chunk, previous_heading=None):
+def extract_heading_hierarchy(chunk, previous=None):
+    """Ekstraksi hirarki heading H1/H2/H3 dari teks fragmen.
+
+    Mengembalikan dict: {"section": H1, "subsection": H2, "heading": H3}
+    Jika tidak ada heading baru pada fragmen, gunakan nilai `previous`.
+    """
+    if previous is None:
+        previous = {"section": None, "subsection": None, "heading": None}
+
     matches = list(HEADING_PATTERN.finditer(chunk))
-    if matches:
-        heading = matches[0].group(2).strip()
-        if heading:
-            return heading
-    return previous_heading
+    if not matches:
+        return previous
+
+    # Ambil heading terakhir yang muncul pada fragmen (paling dekat dengan teks selanjutnya)
+    last_match = matches[-1]
+    level = len(last_match.group(1))
+    title = last_match.group(2).strip()
+    
+    out = previous.copy()
+    if level == 1:
+        out['section'] = title
+        out['subsection'] = None
+    elif level == 2:
+        out['subsection'] = title
+        
+    # Selalu simpan heading terdekat di dalam field 'heading'
+    out['heading'] = title
+    return out
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -105,13 +127,14 @@ def process_multiple_files(files, progress=gr.Progress()):
                 metadatas = []
                 current_heading = None
                 for chunk_index, chunk in enumerate(chunks):
-                    current_heading = extract_chunk_heading(chunk, current_heading)
-                    metadatas.append({
+                    current_heading = extract_heading_hierarchy(chunk, current_heading)
+                    md = {
                         "source": file_name,
                         "doc_id": doc_id,
                         "chunk_index": chunk_index,
-                        "heading": current_heading,
-                    })
+                    }
+                    md.update({k: v for k, v in current_heading.items() if v})
+                    metadatas.append(md)
 
                 documents_info.append({
                     "file_name": file_name,
@@ -163,11 +186,28 @@ def process_multiple_files(files, progress=gr.Progress()):
             embeddings = np.empty((0, 0), dtype="float32")
 
         if all_chunks:
+            # Deduplication: hapus duplikat fragmen berdasarkan SHA256, mempertahankan kemunculan pertama
+            unique_chunks, unique_metadatas, unique_ids, unique_embeddings = [], [], [], []
+            seen = set()
+            for idx, chunk in enumerate(all_chunks):
+                key = hashlib.sha256(chunk.encode('utf-8')).hexdigest()
+                if key in seen:
+                    continue
+                seen.add(key)
+                unique_chunks.append(chunk)
+                unique_metadatas.append(all_metadatas[idx])
+                unique_ids.append(all_ids[idx])
+                unique_embeddings.append(embeddings[idx])
+
             progress(0.9, desc="Membangun indeks FAISS...")
-            vector_store.build_index(all_chunks, all_ids, all_metadatas, embeddings)
+            if unique_embeddings:
+                unique_embeddings = np.vstack(unique_embeddings)
+            else:
+                unique_embeddings = np.empty((0, 0), dtype="float32")
+            vector_store.build_index(unique_chunks, unique_ids, unique_metadatas, unique_embeddings)
 
             progress(0.95, desc="Membangun indeks pencarian BM25...")
-            bm25_manager.build_index(all_chunks, all_ids)
+            bm25_manager.build_index(unique_chunks, unique_ids)
         else:
             progress(0.95, desc="Tidak ada dokumen yang dapat diindeks...")
 

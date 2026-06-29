@@ -75,11 +75,16 @@ def get_llm_relevance_score(query, doc):
         Skor Relevansi (0-10):"""
 
         response = get_session().post(
-            "http://localhost:11434/api/generate",
-            json={"model": OLLAMA_MODEL_NAME, "prompt": prompt, "stream": False},
+            "http://localhost:11434/api/chat",
+            json={
+                "model": OLLAMA_MODEL_NAME,
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": False,
+                "think": False,
+            },
             timeout=180
         )
-        result = response.json().get("response", "").strip()
+        result = response.json().get("message", {}).get("content", "").strip()
         try:
             return max(0, min(10, float(result)))
         except ValueError:
@@ -117,5 +122,7 @@ def rerank_results(query, docs, doc_ids, metadata_list, method=None, top_k=5):
 
 def _fallback_results(doc_ids, docs, metadata_list):
     """Rencana cadangan (Fallback): Mengembalikan sesuai dengan urutan asli"""
+    if not docs:
+        return []
     return [(doc_id, {'content': doc, 'metadata': meta, 'score': 1.0 - idx / len(docs)})
             for idx, (doc_id, doc, meta) in enumerate(zip(doc_ids, docs, metadata_list))]
