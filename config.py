@@ -84,6 +84,29 @@ COMPARISON_SIGNALS = [
     "bandingkan", "perbedaan", "dibandingkan",
 ]
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Ollama inference options
+# Applied to every /api/chat request. Shared across generation and rewrite calls,
+# except temperature which is overridden per call site.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+OLLAMA_OPTIONS_GENERATION = {
+    "temperature": 0.0,
+    "seed": 42,
+    "num_ctx": 8192,
+    "top_k": 20,
+    "top_p": 0.9,
+    "repeat_penalty": 1.1,
+}
+OLLAMA_OPTIONS_REWRITE = {
+    "temperature": 0.0,
+    "seed": 42,
+    "top_p": 0.9,
+    "top_k": 20,
+    "repeat_penalty": 1.1,
+    "num_ctx": 8192,    
+}
+
 # Page-level smart OCR fallback thresholds
 IMAGE_PLACEHOLDER_THRESHOLD = 8
 MIN_VISIBLE_RATIO = 0.20

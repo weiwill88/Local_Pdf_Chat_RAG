@@ -12,7 +12,8 @@ import logging
 import requests
 from config import (
     SILICONFLOW_API_KEY, SILICONFLOW_API_URL,
-    SILICONFLOW_MODEL_NAME, OLLAMA_MODEL_NAME
+    SILICONFLOW_MODEL_NAME, OLLAMA_MODEL_NAME,
+    OLLAMA_OPTIONS_GENERATION, OLLAMA_OPTIONS_REWRITE,
 )
 from utils.network import get_session
 from core.retriever import recursive_retrieval
@@ -80,6 +81,7 @@ def call_llm_simple(prompt, model_choice="siliconflow", temperature=0.0):
                 "messages": [{"role": "user", "content": prompt}],
                 "stream": False,
                 "think": False,
+                "options": {**OLLAMA_OPTIONS_REWRITE, "temperature": temperature},
             },
             timeout=180
         )
@@ -213,6 +215,7 @@ def query_answer(question, enable_web_search=False, model_choice="siliconflow", 
                     "messages": [{"role": "user", "content": prompt}],
                     "stream": False,
                     "think": False,
+                    "options": OLLAMA_OPTIONS_GENERATION,
                 },
                 timeout=180,
                 headers={'Connection': 'close'}
@@ -261,6 +264,7 @@ def stream_answer(question, enable_web_search=False, model_choice="siliconflow",
                     "messages": [{"role": "user", "content": prompt}],
                     "stream": True,
                     "think": False,
+                    "options": OLLAMA_OPTIONS_GENERATION,
                 },
                 timeout=120,
                 stream=True
