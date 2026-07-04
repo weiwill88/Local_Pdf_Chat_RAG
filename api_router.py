@@ -13,7 +13,7 @@ import asyncio
 from contextlib import asynccontextmanager
 
 # 从重构后的模块导入
-from config import SILICONFLOW_API_KEY
+from config import SILICONFLOW_API_KEY, MAGICK_API_KEY, is_configured_api_key
 from core.generator import query_answer
 from core.vector_store import vector_store
 from features.web_search import check_serpapi_key
@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="本地RAG API服务",
-    description="提供基于本地大模型和SERPAPI的文档问答API接口",
+    description="提供基于本地大模型、云端模型服务和SERPAPI的文档问答API接口",
     version="2.0.0",
     lifespan=lifespan
 )
@@ -131,7 +131,8 @@ async def ask_question(req: QuestionRequest):
 async def check_status():
     return {
         "status": "healthy",
-        "siliconflow_configured": bool(SILICONFLOW_API_KEY and not SILICONFLOW_API_KEY.startswith("Your")),
+        "siliconflow_configured": is_configured_api_key(SILICONFLOW_API_KEY),
+        "magick_configured": is_configured_api_key(MAGICK_API_KEY),
         "serpapi_configured": check_serpapi_key(),
         "vector_store_ready": vector_store.is_ready,
         "total_chunks": vector_store.total_chunks,

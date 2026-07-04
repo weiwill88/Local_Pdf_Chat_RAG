@@ -22,8 +22,9 @@ from datetime import datetime
 
 # 导入配置
 from config import (
-    DEFAULT_MODEL_CHOICE, SILICONFLOW_API_KEY,
-    OLLAMA_MODEL_NAME, SILICONFLOW_MODEL_NAME
+    DEFAULT_MODEL_CHOICE, SILICONFLOW_API_KEY, MAGICK_API_KEY,
+    OLLAMA_MODEL_NAME, SILICONFLOW_MODEL_NAME, MAGICK_MODEL_NAME,
+    MODEL_CHOICES, MODEL_DISPLAY_NAMES, is_configured_api_key
 )
 
 # 导入核心模块
@@ -32,7 +33,7 @@ from core.text_splitter import split_text
 from core.embeddings import encode_texts
 from core.vector_store import vector_store
 from core.bm25_index import bm25_manager
-from core.generator import query_answer, call_siliconflow_api
+from core.generator import query_answer, call_siliconflow_api, call_magick_api
 
 # 导入工具
 from utils.network import is_port_available
@@ -169,8 +170,14 @@ def get_system_models_info():
         "重排序模型": "交叉编码器 (distiluse-base-multilingual-cased-v2)",
         "生成模型(Ollama)": OLLAMA_MODEL_NAME,
         "生成模型(SiliconFlow)": SILICONFLOW_MODEL_NAME,
+        "生成模型(Magick API)": MAGICK_MODEL_NAME,
         "分词工具": "jieba (中文分词)"
     }
+
+
+def get_model_display_name(model_choice_val):
+    """返回 UI 中展示的模型服务名称。"""
+    return MODEL_DISPLAY_NAMES.get(model_choice_val, f"未知模型服务({model_choice_val})")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -243,7 +250,7 @@ with gr.Blocks(title="本地RAG问答系统") as demo:
                                 info="打开后将同时搜索网络内容（需配置SERPAPI_KEY）"
                             )
                             model_choice = gr.Dropdown(
-                                choices=["ollama", "siliconflow"],
+                                choices=MODEL_CHOICES,
                                 value=DEFAULT_MODEL_CHOICE,
                                 label="模型选择", info="选择使用本地模型或云端模型"
                             )
@@ -338,7 +345,7 @@ with gr.Blocks(title="本地RAG问答系统") as demo:
             <p>2. <strong>模型选择</strong>：当前使用 <strong>%s</strong></p>
         </div>""" % (
             "已启用" if enable_web_search else "未启用",
-            "Cloud DeepSeek-R1 模型" if model_choice_val == "siliconflow" else "本地 Ollama 模型"
+            get_model_display_name(model_choice_val)
         )
 
         if not question or question.strip() == "":
@@ -363,7 +370,7 @@ with gr.Blocks(title="本地RAG问答系统") as demo:
             <p>2. <strong>模型选择</strong>：当前使用 <strong>%s</strong></p>
         </div>""" % (
             "已启用" if enable_web_search else "未启用",
-            "Cloud DeepSeek-R1 模型" if model_choice_val == "siliconflow" else "本地 Ollama 模型"
+            get_model_display_name(model_choice_val)
         )
 
     def get_system_metrics():
@@ -430,7 +437,7 @@ with gr.Blocks(title="本地RAG问答系统") as demo:
 
 def check_environment():
     """环境依赖检查"""
-    if SILICONFLOW_API_KEY and not SILICONFLOW_API_KEY.startswith("Your"):
+    if is_configured_api_key(SILICONFLOW_API_KEY):
         print("✅ SiliconFlow API 密钥已配置")
         try:
             result = call_siliconflow_api("你好，请回复'连接成功'", temperature=0.1, max_tokens=50)
@@ -442,19 +449,32 @@ def check_environment():
         except Exception as e:
             print(f"⚠️ SiliconFlow API 测试失败: {e}")
             return True
-    else:
-        print("⚠️ 未配置 SiliconFlow API 密钥，将尝试使用本地 Ollama")
+
+    if is_configured_api_key(MAGICK_API_KEY):
+        print("✅ Magick API 密钥已配置")
         try:
-            import requests
-            resp = requests.get("http://localhost:11434/api/tags", timeout=3)
-            if resp.status_code == 200:
-                print("✅ 本地 Ollama 服务可用")
-                return True
-        except Exception:
-            pass
-        print("❌ 未找到任何可用的 LLM 后端")
-        print("   请在 .env 中配置 SILICONFLOW_API_KEY 或启动 Ollama 服务")
-        return False
+            result = call_magick_api("你好，请回复'连接成功'", temperature=0.1, max_tokens=50)
+            if isinstance(result, str) and ("连接成功" in result or "你好" in result):
+                print("✅ Magick API 连接测试成功")
+            else:
+                print("⚠️ Magick API 响应异常，但继续运行")
+            return True
+        except Exception as e:
+            print(f"⚠️ Magick API 测试失败: {e}")
+            return True
+
+    print("⚠️ 未配置云端 API 密钥，将尝试使用本地 Ollama")
+    try:
+        import requests
+        resp = requests.get("http://localhost:11434/api/tags", timeout=3)
+        if resp.status_code == 200:
+            print("✅ 本地 Ollama 服务可用")
+            return True
+    except Exception:
+        pass
+    print("❌ 未找到任何可用的 LLM 后端")
+    print("   请在 .env 中配置 SILICONFLOW_API_KEY / MAGICK_API_KEY 或启动 Ollama 服务")
+    return False
 
 
 if __name__ == "__main__":

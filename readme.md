@@ -6,7 +6,7 @@
 <img src="https://img.shields.io/badge/RAG-Document%20%2B%20网络%20(可选)-orange" alt="RAG类型">
 <img src="https://img.shields.io/badge/UI-Gradio-blueviolet" alt="界面">
 <img src="https://img.shields.io/badge/VectorStore-FAISS-yellow" alt="向量存储">
-<img src="https://img.shields.io/badge/LLM-Ollama%20%7C%20SiliconFlow-lightgrey" alt="LLM支持">
+<img src="https://img.shields.io/badge/LLM-Ollama%20%7C%20SiliconFlow%20%7C%20Magick%20API-lightgrey" alt="LLM支持">
 </p>
 </div>
 
@@ -17,7 +17,7 @@
 *   **拆解RAG黑盒**：亲手实现从文档加载、文本切分、向量化、检索到生成的完整链路
 *   **掌握关键技术选型**：体验FAISS向量检索与BM25关键词检索的混合策略
 *   **实践性能优化技巧**：通过交叉编码器重排序、递归检索等高级功能，学习提升RAG系统准确性
-*   **构建多模型适配能力**：集成本地Ollama与云端SiliconFlow API，掌握不同LLM引擎的对接策略
+*   **构建多模型适配能力**：集成本地Ollama、云端SiliconFlow API与Magick API，掌握不同LLM引擎的对接策略
 
 ## 🌟 核心功能
 
@@ -25,7 +25,7 @@
 *   🔍 **混合检索**：FAISS语义检索 + BM25关键词检索，提高检索召回率和准确性
 *   🔄 **结果重排序**：支持交叉编码器（CrossEncoder）和LLM对检索结果进行重排序
 *   🌐 **联网搜索增强 (可选)**：通过SerpAPI获取实时网络信息（需配置API密钥）
-*   🗣️ **本地/云端**：可选择使用本地Ollama大模型或云端SiliconFlow API进行推理
+*   🗣️ **本地/云端**：可选择使用本地Ollama大模型、云端SiliconFlow API或Magick API进行推理
 *   🤖 **智能回退**：启动时自动检测可用LLM后端，优先使用已配置的服务
 *   🖥️ **用户友好界面**：基于Gradio构建交互式Web界面
 *   📊 **分块可视化**：在UI上展示文档分块情况，帮助理解数据处理过程
@@ -125,9 +125,19 @@ graph TD
 
     # 编辑 .env 填入你的 API Key
     # 至少配置以下其中一项：
-    # - SILICONFLOW_API_KEY: 云端大模型（推荐，无需本地GPU）
+    # - SILICONFLOW_API_KEY: SiliconFlow 云端大模型（推荐，无需本地GPU）
+    # - MAGICK_API_KEY: Magick API 云端模型服务
     # - 本地启动 Ollama 服务（需下载模型）
     ```
+
+    如果使用 Magick API，可在 `.env` 中配置：
+    ```bash
+    MAGICK_API_KEY=你的 Magick API Key
+    MAGICK_API_URL=https://api.magickapi.com/v1/chat/completions
+    MAGICK_MODEL_NAME=gpt-4o-mini
+    ```
+
+    `MAGICK_API_URL` 支持填写完整的 `/chat/completions` 地址，也支持填写以 `/v1` 结尾的 OpenAI-compatible base URL。
 
 4.  **安装并启动Ollama服务** (可选，如果希望使用本地大模型):
     *   访问 [https://ollama.com/download](https://ollama.com/download) 下载并安装Ollama
@@ -141,8 +151,9 @@ graph TD
 | 优先级 | 条件 | 行为 |
 |--------|------|------|
 | 1 | `.env` 中配置了 `SILICONFLOW_API_KEY` | 默认使用云端 SiliconFlow API |
-| 2 | 本地 Ollama 服务可用 | 默认使用本地 Ollama 模型 |
-| 3 | 都不可用 | 提示用户配置 |
+| 2 | `.env` 中配置了 `MAGICK_API_KEY` | 默认使用 Magick API |
+| 3 | 本地 Ollama 服务可用 | 默认使用本地 Ollama 模型 |
+| 4 | 都不可用 | 提示用户配置 |
 
 > 在 UI 中你随时可以通过下拉框手动切换模型。
 
