@@ -34,14 +34,33 @@ SILICONFLOW_API_URL = os.getenv(
     "SILICONFLOW_API_URL",
     "https://api.siliconflow.cn/v1/chat/completions"
 )
+MAGICK_API_KEY = os.getenv("MAGICK_API_KEY")
+MAGICK_API_URL = os.getenv(
+    "MAGICK_API_URL",
+    "https://api.magickapi.com/v1/chat/completions"
+)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 第三步：模型名称配置
-# Ollama 格式: deepseek-r1:8b | SiliconFlow 格式: deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+# Ollama 格式: deepseek-r1:8b
+# SiliconFlow/Magick API 格式: 使用对应平台提供的模型 ID
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OLLAMA_MODEL_NAME = os.getenv("OLLAMA_MODEL_NAME", "deepseek-r1:8b")
 SILICONFLOW_MODEL_NAME = os.getenv("SILICONFLOW_MODEL_NAME", "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B")
+MAGICK_MODEL_NAME = os.getenv("MAGICK_MODEL_NAME", "gpt-4o-mini")
 RERANK_METHOD = os.getenv("RERANK_METHOD", "cross_encoder")
+
+MODEL_CHOICES = ["ollama", "siliconflow", "magick"]
+MODEL_DISPLAY_NAMES = {
+    "ollama": "本地 Ollama 模型",
+    "siliconflow": "Cloud DeepSeek-R1 模型",
+    "magick": "Magick API 模型"
+}
+
+
+def is_configured_api_key(api_key):
+    """判断 API Key 是否为用户实际配置值。"""
+    return bool(api_key and api_key.strip() and not api_key.strip().startswith("Your"))
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 第四步：RAG 超参数
@@ -70,12 +89,17 @@ def detect_default_model():
 
     检测优先级：
     1. SiliconFlow API Key 已配置 → 默认使用云端 API
-    2. 本地 Ollama 服务可用 → 默认使用本地模型
-    3. 都不可用 → 返回 siliconflow 并提示用户配置
+    2. Magick API Key 已配置 → 默认使用 Magick API
+    3. 本地 Ollama 服务可用 → 默认使用本地模型
+    4. 都不可用 → 返回 siliconflow 并提示用户配置
     """
-    if SILICONFLOW_API_KEY and SILICONFLOW_API_KEY.strip() and not SILICONFLOW_API_KEY.startswith("Your"):
+    if is_configured_api_key(SILICONFLOW_API_KEY):
         logging.info("✅ 检测到 SiliconFlow API Key，默认使用云端模型")
         return "siliconflow"
+
+    if is_configured_api_key(MAGICK_API_KEY):
+        logging.info("✅ 检测到 Magick API Key，默认使用 Magick API 模型")
+        return "magick"
 
     try:
         response = requests.get("http://localhost:11434/api/tags", timeout=3)
@@ -85,7 +109,7 @@ def detect_default_model():
     except Exception:
         pass
 
-    logging.warning("⚠️ 未检测到可用 LLM 后端，请配置 SiliconFlow API Key 或启动 Ollama")
+    logging.warning("⚠️ 未检测到可用 LLM 后端，请配置 SiliconFlow/Magick API Key 或启动 Ollama")
     return "siliconflow"
 
 DEFAULT_MODEL_CHOICE = detect_default_model()

@@ -1,10 +1,10 @@
 """
-LLM 调用 —— 大模型回答生成（Ollama + SiliconFlow）
+LLM 调用 —— 大模型回答生成（Ollama + SiliconFlow + Magick API）
 
 学习要点：
 - Prompt Engineering：如何构建高质量的提示词模板
 - 流式输出 vs 非流式输出的区别
-- 多模型适配：本地 Ollama 和云端 SiliconFlow API 的对接
+- 多模型适配：本地 Ollama、云端 SiliconFlow API 和 Magick API 的对接
 """
 
 import json
@@ -12,7 +12,8 @@ import logging
 import requests
 from config import (
     SILICONFLOW_API_KEY, SILICONFLOW_API_URL,
-    SILICONFLOW_MODEL_NAME, OLLAMA_MODEL_NAME
+    SILICONFLOW_MODEL_NAME, OLLAMA_MODEL_NAME,
+    MAGICK_API_KEY, MAGICK_API_URL, MAGICK_MODEL_NAME
 )
 from utils.network import get_session
 from core.retriever import recursive_retrieval
@@ -21,62 +22,140 @@ from features.conflict_detector import detect_conflicts, evaluate_source_credibi
 from features.thinking_chain import process_thinking_content
 
 
-def call_siliconflow_api(prompt, temperature=0.7, max_tokens=1024):
-    """调用 SiliconFlow 云端 API 获取回答"""
-    if not SILICONFLOW_API_KEY:
-        logging.error("未设置 SILICONFLOW_API_KEY")
-        return "错误：未配置 SiliconFlow API 密钥。"
+def _normalize_chat_completions_url(api_url):
+    """兼容用户填写 base URL 或完整 chat completions URL。"""
+    if not api_url:
+        return ""
+    url = api_url.strip().rstrip("/")
+    if url.endswith("/chat/completions"):
+        return url
+    return f"{url}/chat/completions"
 
+
+def _extract_openai_compatible_content(result):
+    """从 OpenAI-compatible 响应中提取回答文本和推理内容。"""
+    if "choices" not in result or not result["choices"]:
+        return "API返回结果格式异常"
+
+    message = result["choices"][0].get("message", {})
+    content = message.get("content", "")
+    reasoning = message.get("reasoning_content", "")
+
+    if isinstance(content, list):
+        content = "".join(
+            item.get("text", "") if isinstance(item, dict) else str(item)
+            for item in content
+        )
+
+    if reasoning:
+        return f"{content}<think>{reasoning}</think>"
+    return content
+
+
+def _call_openai_compatible_api(provider_name, api_key, api_url, model_name,
+                                prompt, temperature=0.7, max_tokens=1024,
+                                extra_payload=None):
+    """调用 OpenAI-compatible Chat Completions API 获取回答。"""
+    if not api_key:
+        logging.error(f"未设置 {provider_name} API Key")
+        return f"错误：未配置 {provider_name} API Key。"
+    if not api_url:
+        logging.error(f"未设置 {provider_name} API URL")
+        return f"错误：未配置 {provider_name} API URL。"
+
+    chat_url = _normalize_chat_completions_url(api_url)
     try:
         payload = {
-            "model": SILICONFLOW_MODEL_NAME,
+            "model": model_name,
             "messages": [{"role": "user", "content": prompt}],
-            "stream": False, "max_tokens": max_tokens,
-            "temperature": temperature, "top_p": 0.7, "top_k": 50,
-            "frequency_penalty": 0.5, "n": 1,
-            "response_format": {"type": "text"}
+            "stream": False,
+            "max_tokens": max_tokens,
+            "temperature": temperature
         }
+        if extra_payload:
+            payload.update(extra_payload)
         headers = {
-            "Authorization": f"Bearer {SILICONFLOW_API_KEY.strip()}",
+            "Authorization": f"Bearer {api_key.strip()}",
             "Content-Type": "application/json; charset=utf-8"
         }
         json_payload = json.dumps(payload, ensure_ascii=False).encode('utf-8')
-        response = requests.post(SILICONFLOW_API_URL, data=json_payload, headers=headers, timeout=180)
+        response = requests.post(chat_url, data=json_payload, headers=headers, timeout=180)
         response.raise_for_status()
         result = response.json()
+        return _extract_openai_compatible_content(result)
 
-        if "choices" in result and len(result["choices"]) > 0:
-            message = result["choices"][0]["message"]
-            content = message.get("content", "")
-            reasoning = message.get("reasoning_content", "")
-            if reasoning:
-                return f"{content}<think>{reasoning}</think>"
-            return content
-        return "API返回结果格式异常"
-
+    except requests.exceptions.HTTPError as e:
+        logging.error(f"调用{provider_name} API时出错: {str(e)}")
+        return (
+            f"调用{provider_name} API时出错: {str(e)}。"
+            f"请检查 API Key、API URL 和模型名称 {model_name} 是否可用。"
+        )
     except requests.exceptions.RequestException as e:
-        logging.error(f"调用SiliconFlow API时出错: {str(e)}")
-        return f"调用API时出错: {str(e)}"
+        logging.error(f"调用{provider_name} API时出错: {str(e)}")
+        return f"调用{provider_name} API时出错: {str(e)}"
     except Exception as e:
-        logging.error(f"SiliconFlow API 未知错误: {str(e)}")
+        logging.error(f"{provider_name} API 未知错误: {str(e)}")
         return f"发生未知错误: {str(e)}"
+
+
+def call_siliconflow_api(prompt, temperature=0.7, max_tokens=1024):
+    """调用 SiliconFlow 云端 API 获取回答"""
+    return _call_openai_compatible_api(
+        "SiliconFlow",
+        SILICONFLOW_API_KEY,
+        SILICONFLOW_API_URL,
+        SILICONFLOW_MODEL_NAME,
+        prompt,
+        temperature,
+        max_tokens,
+        extra_payload={
+            "top_p": 0.7,
+            "top_k": 50,
+            "frequency_penalty": 0.5,
+            "n": 1,
+            "response_format": {"type": "text"}
+        }
+    )
+
+
+def call_magick_api(prompt, temperature=0.7, max_tokens=1024):
+    """调用 Magick API 获取回答。"""
+    return _call_openai_compatible_api(
+        "Magick API",
+        MAGICK_API_KEY,
+        MAGICK_API_URL,
+        MAGICK_MODEL_NAME,
+        prompt,
+        temperature,
+        max_tokens
+    )
+
+
+def call_cloud_api(prompt, model_choice="siliconflow", temperature=0.7, max_tokens=1024):
+    """统一调用云端 OpenAI-compatible 模型服务。"""
+    if model_choice == "siliconflow":
+        return call_siliconflow_api(prompt, temperature, max_tokens)
+    if model_choice == "magick":
+        return call_magick_api(prompt, temperature, max_tokens)
+    raise ValueError(f"未知云端模型服务: {model_choice}")
 
 
 def call_llm_simple(prompt, model_choice="siliconflow"):
     """简单的 LLM 调用（用于递归检索中的查询改写判断）"""
-    if model_choice == "siliconflow":
-        result = call_siliconflow_api(prompt)
+    if model_choice in ("siliconflow", "magick"):
+        result = call_cloud_api(prompt, model_choice)
         result = result.strip() if isinstance(result, str) else result[0].strip()
         if "<think>" in result:
             result = result.split("<think>")[0].strip()
         return result
-    else:
+    elif model_choice == "ollama":
         response = get_session().post(
             "http://localhost:11434/api/generate",
             json={"model": OLLAMA_MODEL_NAME, "prompt": prompt, "stream": False},
             timeout=180
         )
         return response.json().get("response", "").strip()
+    raise ValueError(f"未知模型选择: {model_choice}")
 
 
 def _build_prompt(question, context, enable_web_search, knowledge_base_exists,
@@ -162,9 +241,9 @@ def query_answer(question, enable_web_search=False, model_choice="siliconflow", 
         if progress:
             progress(0.8, desc="生成回答...")
 
-        if model_choice == "siliconflow":
-            result = call_siliconflow_api(prompt, temperature=0.7, max_tokens=1536)
-        else:
+        if model_choice in ("siliconflow", "magick"):
+            result = call_cloud_api(prompt, model_choice, temperature=0.7, max_tokens=1536)
+        elif model_choice == "ollama":
             response = get_session().post(
                 "http://localhost:11434/api/generate",
                 json={"model": OLLAMA_MODEL_NAME, "prompt": prompt, "stream": False},
@@ -172,6 +251,8 @@ def query_answer(question, enable_web_search=False, model_choice="siliconflow", 
             )
             response.raise_for_status()
             result = str(response.json().get("response", "未获取到有效回答"))
+        else:
+            return f"错误：未知模型选择 {model_choice}"
 
         return process_thinking_content(result)
 
@@ -203,10 +284,10 @@ def stream_answer(question, enable_web_search=False, model_choice="siliconflow",
         prompt = _build_prompt(question, context, enable_web_search,
                                knowledge_base_exists, time_sensitive, conflict_detected)
 
-        if model_choice == "siliconflow":
-            full_answer = call_siliconflow_api(prompt, temperature=0.7, max_tokens=1536)
+        if model_choice in ("siliconflow", "magick"):
+            full_answer = call_cloud_api(prompt, model_choice, temperature=0.7, max_tokens=1536)
             yield process_thinking_content(full_answer), "完成!"
-        else:
+        elif model_choice == "ollama":
             response = get_session().post(
                 "http://localhost:11434/api/generate",
                 json={"model": OLLAMA_MODEL_NAME, "prompt": prompt, "stream": True},
@@ -223,6 +304,8 @@ def stream_answer(question, enable_web_search=False, model_choice="siliconflow",
                         yield full_answer, "生成回答中..."
 
             yield process_thinking_content(full_answer), "完成!"
+        else:
+            yield f"错误：未知模型选择 {model_choice}", "遇到错误"
 
     except Exception as e:
         yield f"系统错误: {str(e)}", "遇到错误"
