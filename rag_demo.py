@@ -28,7 +28,7 @@ from config import (
 )
 
 # 导入核心模块
-from utils.document_loader import load_document
+from utils.document_loader import load_document, is_ocr_available
 from core.text_splitter import split_text
 from core.embeddings import encode_texts
 from core.vector_store import vector_store
@@ -64,6 +64,14 @@ if initial_kb_list:
     print(f"📚 已加载知识库「{initial_kb_list[0]}」({vector_store.total_chunks} 个文本块, {len(initial_chat_history)} 条对话记录)")
 else:
     print("📚 暂无知识库，请创建新知识库")
+
+# Tesseract OCR 前置检测
+ocr_avail = is_ocr_available()
+_tesseract_status_html = (
+    """<div class="tesseract-status" style="padding:8px 12px;border-radius:6px;font-size:13px;margin-top:4px;background:rgba(76,175,80,0.1);border:1px solid #4CAF50;color:#4CAF50">🖼️ Tesseract OCR 引擎: <strong>可用</strong>（扫描版 PDF 可正常识别）</div>"""
+    if ocr_avail else
+    """<div class="tesseract-status" style="padding:8px 12px;border-radius:6px;font-size:13px;margin-top:4px;background:rgba(244,67,54,0.1);border:1px solid #f44336;color:#f44336">🖼️ Tesseract OCR 引擎: <strong>未安装</strong> — 扫描版 PDF 将跳过 OCR。<br>安装: <a href="https://github.com/tesseract-ocr/tesseract" target="_blank">https://github.com/tesseract-ocr/tesseract</a></div>"""
+)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -348,6 +356,7 @@ with gr.Blocks(title="本地RAG问答系统") as demo:
                             file_types=[".pdf", ".txt", ".docx", ".xlsx", ".xls", ".pptx", ".md"],
                             file_count="multiple"
                         )
+                        tesseract_status = gr.HTML("")
                         upload_btn = gr.Button("🚀 开始处理", variant="primary")
                         upload_status = gr.Textbox(label="处理状态", interactive=False, lines=2)
                         file_list = gr.Textbox(label="已处理文件", interactive=False, lines=3, elem_classes="file-list")
@@ -585,7 +594,10 @@ with gr.Blocks(title="本地RAG问答系统") as demo:
     """)
 
     # 页面刷新时重新加载对话历史（解决刷新后历史清空的问题）
-    demo.load(fn=load_current_kb_history, inputs=[], outputs=[chatbot])
+    demo.load(
+        fn=lambda: (load_current_kb_history(), _tesseract_status_html),
+        inputs=[], outputs=[chatbot, tesseract_status]
+    )
 
 
 def check_environment():

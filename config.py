@@ -73,7 +73,23 @@ RERANK_TOP_K = 5          # 重排序后保留的文档数量
 MAX_RETRIEVAL_ITERATIONS = 3  # 递归检索的最大迭代轮数
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 第五步：运行时环境配置
+# 第五步：Tesseract OCR 路径配置
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TESSERACT_CMD = os.getenv("TESSERACT_CMD", "").strip()
+# 如果配置了路径且文件存在，提前设置 pytesseract 路径
+if TESSERACT_CMD:
+    if os.path.isfile(TESSERACT_CMD):
+        try:
+            import pytesseract
+            pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
+            logging.info(f"✅ 使用配置的 Tesseract 路径: {TESSERACT_CMD}")
+        except ImportError:
+            pass  # pytesseract 尚未安装，后续再设置
+    else:
+        logging.warning(f"⚠️ 配置的 TESSERACT_CMD 路径不存在: {TESSERACT_CMD}，将使用系统默认检测")
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 第六步：运行时环境配置
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'

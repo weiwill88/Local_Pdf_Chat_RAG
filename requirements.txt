@@ -5,6 +5,12 @@ sentence-transformers>=2.2.2
 faiss-cpu
 langchain-core>=0.1.0
 langchain-text-splitters
+
+# 文档解析增强
+openpyxl>=3.1.0
+pdf2image>=1.16.0
+pytesseract>=0.3.10
+Pillow>=10.0.0
 python-dotenv>=1.0.0
 requests>=2.31.0
 markdown>=3.4.3
