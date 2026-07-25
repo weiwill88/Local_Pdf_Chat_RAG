@@ -12,6 +12,7 @@ models/
 
 # 数据库
 *.db
+*.sqlite
 
 # 知识库存储
 knowledge_bases/
@@ -33,7 +34,15 @@ Thumbs.db
 
 # 应用日志
 rag_app_*.log
+*.log
 
-# 测试文档
-test_*.pptx
-test_*.xlsx
+# 知识库索引缓存（项目根目录下的独立索引）
+*.faiss
+
+# 临时文件
+*.tmp
+*.temp
+*.pid
+
+# 环境变量示例（不含敏感信息）
+example.env

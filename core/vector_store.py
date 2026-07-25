@@ -404,6 +404,37 @@ class VectorStore:
             logging.error(f"FAISS 检索错误: {str(e)}")
             return [], [], []
 
+    def search_with_scores(self, query_embedding, k=10):
+        """
+        搜索最相似的向量并返回实际相似度分数（用于自动触发联网搜索的判断）
+
+        将 FAISS L2 距离转换为 0~1 相似度分数。
+        对于 L2 归一化向量：cos_sim = 1 - L2²/2
+
+        Returns:
+            (docs, doc_ids, metadatas, scores)
+            scores: [0~1] 相似度列表，值越高越相关
+        """
+        if self.index is None or self.index.ntotal == 0:
+            return [], [], [], []
+        try:
+            D, I = self.index.search(query_embedding, k=k)
+            docs, doc_ids, metadatas, scores = [], [], [], []
+            for faiss_idx, l2_dist in zip(I[0], D[0]):
+                if faiss_idx != -1 and faiss_idx < len(self.id_order):
+                    original_id = self.id_order[faiss_idx]
+                    if original_id in self.contents_map:
+                        docs.append(self.contents_map[original_id])
+                        doc_ids.append(original_id)
+                        metadatas.append(self.metadatas_map.get(original_id, {}))
+                        # L2 → 余弦相似度（假设向量已 L2 归一化）
+                        sim = max(0.0, 1.0 - (l2_dist * l2_dist) / 2.0)
+                        scores.append(round(sim, 4))
+            return docs, doc_ids, metadatas, scores
+        except Exception as e:
+            logging.error(f"FAISS 检索错误(带分数): {str(e)}")
+            return [], [], [], []
+
     def search_with_embeddings(self, query_embedding, k=10):
         """
         搜索最相似的向量并返回向量值（用于 MMR 重排序）

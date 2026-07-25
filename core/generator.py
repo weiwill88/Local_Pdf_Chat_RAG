@@ -14,7 +14,8 @@ import re
 import requests
 from config import (
     SILICONFLOW_API_KEY, SILICONFLOW_API_URL,
-    SILICONFLOW_MODEL_NAME, OLLAMA_MODEL_NAME,
+    SILICONFLOW_MODEL_NAME, OLLAMA_MODEL_NAME, OLLAMA_NUM_CTX,
+    OLLAMA_TEMPERATURE, OLLAMA_TOP_P,
     MAGICK_API_KEY, MAGICK_API_URL, MAGICK_MODEL_NAME
 )
 from utils.network import get_session
@@ -146,8 +147,68 @@ def call_cloud_api(prompt, model_choice="siliconflow", temperature=0.7, max_toke
     raise ValueError(f"未知云端模型服务: {model_choice}")
 
 
-def call_llm_simple(prompt, model_choice="siliconflow"):
-    """简单的 LLM 调用（用于递归检索中的查询改写判断）"""
+def call_ollama_api(prompt, model_name=None, num_ctx=None, temperature=None,
+                     top_p=None, max_tokens=2048, timeout=180):
+    """
+    调用本地 Ollama API（支持可配置参数）。
+
+    Args:
+        prompt: 输入提示词
+        model_name: Ollama 模型名，默认使用 OLLAMA_MODEL_NAME
+        num_ctx: 上下文窗口长度
+        temperature: 温度 (0~1)
+        top_p: 核采样系数
+        max_tokens: 最大生成长度
+        timeout: 超时秒数
+
+    Returns:
+        str: 模型回答文本
+    """
+    if model_name is None:
+        model_name = OLLAMA_MODEL_NAME
+    if num_ctx is None:
+        num_ctx = OLLAMA_NUM_CTX
+    if temperature is None:
+        temperature = OLLAMA_TEMPERATURE
+    if top_p is None:
+        top_p = OLLAMA_TOP_P
+
+    payload = {
+        "model": model_name,
+        "prompt": prompt,
+        "stream": False,
+        "options": {
+            "num_ctx": num_ctx,
+            "temperature": temperature,
+            "top_p": top_p,
+            "num_predict": max_tokens,
+        }
+    }
+    try:
+        response = get_session().post(
+            "http://localhost:11434/api/generate",
+            json=payload, timeout=timeout,
+            headers={'Connection': 'close'}
+        )
+        response.raise_for_status()
+        result = response.json().get("response", "")
+        logging.info(f"Ollama [{model_name}] 生成完成, {len(result)} 字符")
+        return result.strip()
+    except requests.exceptions.Timeout:
+        return f"⏱️ Ollama 请求超时（{timeout}秒），请检查模型大小或增加超时时间。"
+    except requests.exceptions.ConnectionError:
+        return "🔌 无法连接到 Ollama 服务（localhost:11434），请确认 Ollama 是否已启动。"
+    except Exception as e:
+        return f"🤖 Ollama 调用失败: {str(e)}"
+
+
+def call_llm_simple(prompt, model_choice="siliconflow", ollama_model_name=None,
+                     ollama_num_ctx=None, ollama_temperature=None, ollama_top_p=None):
+    """
+    简单的 LLM 调用（用于递归检索中的查询改写判断）
+
+    支持传入 Ollama 参数以保持配置一致。
+    """
     if model_choice in ("siliconflow", "magick"):
         result = call_cloud_api(prompt, model_choice)
         result = result.strip() if isinstance(result, str) else result[0].strip()
@@ -155,18 +216,17 @@ def call_llm_simple(prompt, model_choice="siliconflow"):
             result = result.split("<think>")[0].strip()
         return result
     elif model_choice == "ollama":
-        response = get_session().post(
-            "http://localhost:11434/api/generate",
-            json={"model": OLLAMA_MODEL_NAME, "prompt": prompt, "stream": False},
-            timeout=180
+        return call_ollama_api(
+            prompt, model_name=ollama_model_name,
+            num_ctx=ollama_num_ctx, temperature=ollama_temperature,
+            top_p=ollama_top_p, max_tokens=512
         )
-        return response.json().get("response", "").strip()
     raise ValueError(f"未知模型选择: {model_choice}")
 
 
 def _build_prompt(question, context, enable_web_search, knowledge_base_exists,
-                  time_sensitive, conflict_detected):
-    """构建提示词"""
+                  time_sensitive, conflict_detected, has_web_results=False):
+    """构建提示词（明确区分本地文档与网络检索来源）"""
     prompt_template = """作为一个专业的问答助手，你需要基于以下{context_type}回答用户问题。
 
 提供的参考内容：
@@ -179,41 +239,59 @@ def _build_prompt(question, context, enable_web_search, knowledge_base_exists,
 2. 如果参考内容中没有足够信息，请坦诚告知你无法回答
 3. 回答应该全面、准确、有条理，并使用适当的段落和结构
 4. 请用中文回答
-5. 在回答末尾标注信息来源{time_instruction}{conflict_instruction}
+5. {source_instruction}{time_instruction}{conflict_instruction}
 
 请现在开始回答："""
 
+    # 确定来源类型描述
+    if has_web_results and knowledge_base_exists:
+        context_type = "【本地文档参考】和【网络检索参考】资料"
+        source_instruction = "对于参考内容，请明确区分【本地文档参考】来源和【网络检索参考】来源，在回答中标注哪些信息来自本地文档、哪些来自网络搜索。回答末尾按'【本地文档参考】'和'【网络检索参考】'两类分别列出参考资料。"
+    elif has_web_results:
+        context_type = "【网络检索参考】资料"
+        source_instruction = "所有信息均来自网络搜索，请在回答末尾列出网络来源链接。"
+    elif knowledge_base_exists:
+        context_type = "【本地文档参考】"
+        source_instruction = "所有信息均来自上传的本地文档，请在回答末尾标注信息来源文档名。"
+    else:
+        context_type = "空知识库"
+        source_instruction = ""
+
     return prompt_template.format(
-        context_type="本地文档和网络搜索结果" if enable_web_search and knowledge_base_exists else (
-            "网络搜索结果" if enable_web_search else "本地文档"),
+        context_type=context_type,
         context=context if context else (
-            "网络搜索结果将用于回答。" if enable_web_search and not knowledge_base_exists else "知识库为空或未找到相关内容。"),
+            "知识库为空，请基于你自己的知识回答。" if not enable_web_search else "网络搜索结果将用于回答。"),
         question=question,
-        time_instruction="，优先使用最新的信息" if time_sensitive and enable_web_search else "",
-        conflict_instruction="，并明确指出不同来源的差异" if conflict_detected else ""
+        source_instruction=source_instruction,
+        time_instruction="优先使用最新的信息。" if time_sensitive and enable_web_search else "",
+        conflict_instruction="如果不同来源之间存在差异或矛盾，请明确指出。" if conflict_detected else ""
     )
 
 
 def _build_context(all_contexts, all_doc_ids, all_metadata, enable_web_search):
-    """构建上下文和来源信息"""
+    """构建上下文和来源信息（区分【本地文档参考】/【网络检索参考】）"""
     context_parts = []
     sources_for_conflict = []
+    local_count, web_count = 0, 0
 
     for idx, (doc, doc_id, metadata) in enumerate(zip(all_contexts, all_doc_ids, all_metadata)):
-        source_type = metadata.get('source', '本地文档')
+        source_type = metadata.get('source_type', 'local')
         source_item = {'text': doc, 'type': source_type}
 
         if source_type == 'web':
+            web_count += 1
             url = metadata.get('url', '未知URL')
             title = metadata.get('title', '未知标题')
-            context_parts.append(f"[网络来源: {title}] (URL: {url})\n{doc}")
+            context_parts.append(f"[【网络检索参考】来源 {web_count}: {title}] (URL: {url})\n{doc}")
             source_item['url'] = url
             source_item['title'] = title
+            source_item['source'] = "【网络检索参考】"
         else:
+            local_count += 1
             source = metadata.get('source', '未知来源')
             chunk_label = metadata.get('chunk_id', doc_id)
-            context_parts.append(f"[本地文档: {source}] [块: {chunk_label}]\n{doc}")
-            source_item['source'] = source
+            context_parts.append(f"[【本地文档参考】来源 {local_count}: {source}] [块: {chunk_label}]\n{doc}")
+            source_item['source'] = f"【本地文档参考】{source}"
 
         sources_for_conflict.append(source_item)
 
@@ -222,15 +300,16 @@ def _build_context(all_contexts, all_doc_ids, all_metadata, enable_web_search):
 
 def _build_citation_section(sources_info):
     """
-    构建溯源引用 HTML 片段
+    构建溯源引用 HTML 片段（区分【本地文档参考】/【网络检索参考】）
 
     在回答末尾追加参考资料列表，每个引用包含：
+    - 来源类型徽章（本地文档参考/网络检索参考）
     - 来源文档名
     - 文本块编号
     - 可折叠的原文预览
 
     Args:
-        sources_info: [{"source": ..., "chunk_id": ..., "preview": ...}]
+        sources_info: [{"source": ..., "chunk_id": ..., "preview": ..., "source_type": ...}]
 
     Returns:
         HTML 格式的引用片段
@@ -238,31 +317,52 @@ def _build_citation_section(sources_info):
     if not sources_info:
         return ""
 
-    citations = []
-    seen_sources = {}
+    local_citations = []
+    web_citations = []
+    error_msg = None
+    seen_local = {}
 
     for idx, src in enumerate(sources_info, 1):
+        source_type = src.get("source_type", "local")
         source_name = src.get("source", "未知来源")
-        chunk_id = src.get("chunk_id", "")
         preview = src.get("preview", "")
 
-        if source_name not in seen_sources:
-            seen_sources[source_name] = len(seen_sources) + 1
-            citations.append(f"\n📄 **来源 {seen_sources[source_name]}: {source_name}**")
+        # 联网搜索失败消息单独处理
+        if source_type == "web_error":
+            error_msg = preview
+            continue
 
-        # 原文可折叠
         escaped_preview = preview.replace("<", "&lt;").replace(">", "&gt;")
-        citations.append(
-            f'  - 片段 [{idx}]: '
-            f'<details><summary>查看原文片段</summary>\n\n{escaped_preview}\n\n</details>'
-        )
 
-    return "\n\n---\n\n**📚 参考资料**\n" + "\n".join(citations)
+        if source_type == "web":
+            title = src.get("title", source_name)
+            web_citations.append(
+                f'  - 🌐 搜索结果 [{idx}]: <details><summary>{title}</summary>\n\n{escaped_preview}\n\n</details>'
+            )
+        else:
+            if source_name not in seen_local:
+                seen_local[source_name] = len(seen_local) + 1
+            local_citations.append(
+                f'  - 📄 片段 [{idx}]: '
+                f'<details><summary>查看原文片段</summary>\n\n{escaped_preview}\n\n</details>'
+            )
+
+    parts = []
+    if local_citations:
+        parts.append("**▶ 本地知识库参考**\n" + "\n".join(local_citations))
+    if web_citations:
+        parts.append("**▶ 网络检索补充内容**\n" + "\n".join(web_citations))
+    if error_msg:
+        parts.append(f"**⚠️ 网络搜索提示**\n\n> {error_msg}")
+
+    return "\n\n---\n\n" + "\n\n".join(parts)
 
 
 def query_answer(question, enable_web_search=False, model_choice="siliconflow",
                  progress=None, alpha=None, use_parent_retriever=True,
-                 use_mmr=True, mmr_lambda=None):
+                 use_mmr=True, mmr_lambda=None,
+                 ollama_model_name=None, ollama_num_ctx=None,
+                 ollama_temperature=None, ollama_top_p=None):
     """
     问答处理主流程（非流式）
 
@@ -277,6 +377,10 @@ def query_answer(question, enable_web_search=False, model_choice="siliconflow",
         use_parent_retriever: 是否启用父文档检索
         use_mmr: 是否启用 MMR 重排序
         mmr_lambda: MMR 多样性参数
+        ollama_model_name: Ollama 具体模型名（下拉框选择）
+        ollama_num_ctx: Ollama 上下文窗口
+        ollama_temperature: Ollama 温度
+        ollama_top_p: Ollama top_p
 
     Returns:
         str: 回答文本（含溯源引用）
@@ -295,7 +399,11 @@ def query_answer(question, enable_web_search=False, model_choice="siliconflow",
                 initial_query=question, enable_web_search=enable_web_search,
                 model_choice=model_choice, alpha=alpha,
                 use_parent_retriever=use_parent_retriever,
-                use_mmr=use_mmr, mmr_lambda=mmr_lambda
+                use_mmr=use_mmr, mmr_lambda=mmr_lambda,
+                ollama_model_name=ollama_model_name,
+                ollama_num_ctx=ollama_num_ctx,
+                ollama_temperature=ollama_temperature,
+                ollama_top_p=ollama_top_p,
             )
         except Exception as e:
             logging.error(f"检索阶段失败: {str(e)}")
@@ -304,11 +412,20 @@ def query_answer(question, enable_web_search=False, model_choice="siliconflow",
         if not all_contexts and not enable_web_search:
             return "⚠️ 未在知识库中找到相关答案，请尝试换一种方式提问或上传更多文档。"
 
+        if not all_contexts and enable_web_search:
+            return "⚠️ 本地知识库和网络搜索均未找到有效内容，请尝试换一种方式提问。"
+
         # 构建上下文
         try:
             context, sources = _build_context(all_contexts, all_doc_ids, all_metadata, enable_web_search)
         except Exception as e:
             return f"📄 上下文构建失败: {str(e)}"
+
+        # 检测是否有网络检索结果
+        has_web_results = any(
+            m.get("source_type") == "web" or m.get("source") == "【网络检索参考】"
+            for m in all_metadata
+        )
 
         conflict_detected = detect_conflicts(sources)
         time_sensitive = any(w in question for w in ["最新", "今年", "当前", "最近", "刚刚"])
@@ -316,7 +433,8 @@ def query_answer(question, enable_web_search=False, model_choice="siliconflow",
         # 构建 Prompt
         try:
             prompt = _build_prompt(question, context, enable_web_search,
-                                   knowledge_base_exists, time_sensitive, conflict_detected)
+                                   knowledge_base_exists, time_sensitive, conflict_detected,
+                                   has_web_results=has_web_results)
         except Exception as e:
             return f"📝 提示词构建失败: {str(e)}"
 
@@ -328,13 +446,11 @@ def query_answer(question, enable_web_search=False, model_choice="siliconflow",
             if model_choice in ("siliconflow", "magick"):
                 result = call_cloud_api(prompt, model_choice, temperature=0.7, max_tokens=1536)
             elif model_choice == "ollama":
-                response = get_session().post(
-                    "http://localhost:11434/api/generate",
-                    json={"model": OLLAMA_MODEL_NAME, "prompt": prompt, "stream": False},
-                    timeout=180, headers={'Connection': 'close'}
+                result = call_ollama_api(
+                    prompt, model_name=ollama_model_name,
+                    num_ctx=ollama_num_ctx, temperature=ollama_temperature,
+                    top_p=ollama_top_p, max_tokens=2048
                 )
-                response.raise_for_status()
-                result = str(response.json().get("response", "未获取到有效回答"))
             else:
                 return f"错误：未知模型选择 {model_choice}"
         except requests.exceptions.Timeout:
@@ -346,6 +462,18 @@ def query_answer(question, enable_web_search=False, model_choice="siliconflow",
 
         # 处理思考链
         answer = process_thinking_content(result)
+
+        # 构建来源摘要头部
+        local_count = sum(1 for m in all_metadata if m.get("source_type") == "local")
+        web_count = sum(1 for m in all_metadata if m.get("source_type") == "web")
+        has_error = any(m.get("source_type") == "web_error" for m in all_metadata)
+        source_summary_parts = []
+        if local_count > 0:
+            source_summary_parts.append(f"▶ 本地知识库参考：{local_count} 个相关片段")
+        if web_count > 0:
+            source_summary_parts.append(f"▶ 网络检索补充内容：{web_count} 条搜索结果")
+        if source_summary_parts:
+            answer = f"> **📋 回答来源分区**\n\n" + "\n".join(source_summary_parts) + "\n\n---\n\n" + answer
 
         # 追加溯源引用
         if all_doc_ids and sources_info:
@@ -380,7 +508,11 @@ def stream_answer(question, enable_web_search=False, model_choice="siliconflow",
                 initial_query=question, enable_web_search=enable_web_search,
                 model_choice=model_choice, alpha=alpha,
                 use_parent_retriever=use_parent_retriever,
-                use_mmr=use_mmr, mmr_lambda=mmr_lambda
+                use_mmr=use_mmr, mmr_lambda=mmr_lambda,
+                ollama_model_name=ollama_model_name,
+                ollama_num_ctx=ollama_num_ctx,
+                ollama_temperature=ollama_temperature,
+                ollama_top_p=ollama_top_p,
             )
         except Exception as e:
             yield f"🔍 文档检索失败: {str(e)}", "遇到错误"
@@ -389,9 +521,14 @@ def stream_answer(question, enable_web_search=False, model_choice="siliconflow",
         context, sources = _build_context(all_contexts, all_doc_ids, all_metadata, enable_web_search)
         conflict_detected = detect_conflicts(sources)
         time_sensitive = any(w in question for w in ["最新", "今年", "当前", "最近", "刚刚"])
+        has_web_results = any(
+            m.get("source_type") == "web" or m.get("source") == "【网络检索参考】"
+            for m in all_metadata
+        )
 
         prompt = _build_prompt(question, context, enable_web_search,
-                               knowledge_base_exists, time_sensitive, conflict_detected)
+                               knowledge_base_exists, time_sensitive, conflict_detected,
+                               has_web_results=has_web_results)
 
         if model_choice in ("siliconflow", "magick"):
             full_answer = call_cloud_api(prompt, model_choice, temperature=0.7, max_tokens=1536)
