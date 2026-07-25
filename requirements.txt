@@ -3,6 +3,7 @@ gradio>=3.50.0
 pdfminer.six>=20221105
 sentence-transformers>=2.2.2
 faiss-cpu
+langchain-core>=0.1.0
 langchain-text-splitters
 python-dotenv>=1.0.0
 requests>=2.31.0

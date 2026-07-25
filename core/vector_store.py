@@ -9,9 +9,11 @@
 - 本项目根据向量数量自动选择最优索引类型
 """
 
+import os
+import json
 import logging
 import numpy as np
-from faiss import IndexFlatL2, IndexIVFFlat, IndexIVFPQ
+from faiss import IndexFlatL2, IndexIVFFlat, IndexIVFPQ, serialize_index, deserialize_index
 
 
 class AutoFaissIndex:
@@ -74,6 +76,52 @@ class AutoFaissIndex:
         if self.index_type in ["IVFFlat", "IVFPQ"]:
             self.index.nprobe = self.nprobe
         return self.index.search(query_vectors, k)
+
+    def save(self, directory):
+        """将 FAISS 索引保存到磁盘（使用序列化，支持中文路径）"""
+        os.makedirs(directory, exist_ok=True)
+        index_path = os.path.join(directory, "index.faiss")
+        # 使用 serialize_index 避免 FAISS C++ 层中文路径问题
+        idx_bytes = serialize_index(self.index)
+        # serialize_index 返回 numpy.ndarray，转为 bytes 写入
+        if hasattr(idx_bytes, 'tobytes'):
+            idx_bytes = idx_bytes.tobytes()
+        with open(index_path, "wb") as f:
+            f.write(idx_bytes)
+        meta = {
+            "dimension": self.dimension,
+            "index_type": self.index_type,
+            "nlist": self.nlist,
+            "nprobe": self.nprobe,
+            "m": self.m,
+        }
+        with open(os.path.join(directory, "index_meta.json"), "w") as f:
+            json.dump(meta, f)
+
+    @classmethod
+    def load(cls, directory):
+        """从磁盘加载 FAISS 索引"""
+        index_path = os.path.join(directory, "index.faiss")
+        meta_path = os.path.join(directory, "index_meta.json")
+        if not os.path.exists(index_path):
+            return None
+        with open(index_path, "rb") as f:
+            raw = f.read()
+        # deserialize_index 需要 numpy 数组
+        index = deserialize_index(np.frombuffer(raw, dtype='uint8'))
+        auto_index = cls(dimension=384)
+        auto_index.index = index
+        if os.path.exists(meta_path):
+            with open(meta_path, "r") as f:
+                meta = json.load(f)
+            auto_index.index_type = meta.get("index_type")
+            auto_index.nlist = meta.get("nlist")
+            auto_index.nprobe = meta.get("nprobe", 1)
+            auto_index.m = meta.get("m")
+        else:
+            auto_index.index_type = "FlatL2"
+            auto_index.nprobe = 1
+        return auto_index
 
     def get_index_info(self):
         return {
@@ -159,6 +207,46 @@ class VectorStore:
         self.metadatas_map.clear()
         self.id_order.clear()
         logging.info("向量存储已清空")
+
+    def save(self, directory):
+        """将整个向量存储保存到磁盘"""
+        os.makedirs(directory, exist_ok=True)
+        # 保存 FAISS 索引
+        if self.index is not None and self.index.ntotal > 0:
+            self.index.save(directory)
+        # 保存文本内容和元数据
+        with open(os.path.join(directory, "contents_map.json"), "w", encoding="utf-8") as f:
+            json.dump(self.contents_map, f, ensure_ascii=False)
+        with open(os.path.join(directory, "metadatas_map.json"), "w", encoding="utf-8") as f:
+            json.dump(self.metadatas_map, f, ensure_ascii=False)
+        with open(os.path.join(directory, "id_order.json"), "w", encoding="utf-8") as f:
+            json.dump(self.id_order, f, ensure_ascii=False)
+        logging.info(f"向量存储已保存到 {directory}（{len(self.id_order)} 个文本块）")
+
+    def load(self, directory):
+        """从磁盘加载向量存储"""
+        self.clear()
+        # 加载 FAISS 索引
+        index_path = os.path.join(directory, "index.faiss")
+        if os.path.exists(index_path):
+            auto_index = AutoFaissIndex.load(directory)
+            if auto_index is not None:
+                self.index = auto_index
+        # 加载文本内容和元数据
+        cm_path = os.path.join(directory, "contents_map.json")
+        mm_path = os.path.join(directory, "metadatas_map.json")
+        io_path = os.path.join(directory, "id_order.json")
+        if os.path.exists(cm_path):
+            with open(cm_path, "r", encoding="utf-8") as f:
+                self.contents_map = json.load(f)
+        if os.path.exists(mm_path):
+            with open(mm_path, "r", encoding="utf-8") as f:
+                self.metadatas_map = json.load(f)
+        if os.path.exists(io_path):
+            with open(io_path, "r", encoding="utf-8") as f:
+                self.id_order = json.load(f)
+        logging.info(f"向量存储已从 {directory} 加载（{len(self.id_order)} 个文本块）")
+        return self.is_ready
 
 
 # 模块级单例

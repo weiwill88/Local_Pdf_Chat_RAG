@@ -1,5 +1,6 @@
 # 环境与依赖
 .env
+venv/
 rag_env/
 __pycache__/
 *.pyc
@@ -8,6 +9,17 @@ __pycache__/
 # 模型缓存
 .cache/
 models/
+
+# 数据库
+*.db
+
+# 知识库存储
+knowledge_bases/
+
+# 测试文档
+test_*.docx
+test_*.txt
+test_*.md
 
 # IDE
 .vscode/

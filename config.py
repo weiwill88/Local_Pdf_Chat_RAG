@@ -32,7 +32,7 @@ SEARCH_ENGINE = "google"
 SILICONFLOW_API_KEY = os.getenv("SILICONFLOW_API_KEY")
 SILICONFLOW_API_URL = os.getenv(
     "SILICONFLOW_API_URL",
-    "https://api.siliconflow.cn/v1/chat/completions"
+    "https://api.deepseek.com/v1/chat/completions"
 )
 MAGICK_API_KEY = os.getenv("MAGICK_API_KEY")
 MAGICK_API_URL = os.getenv(
@@ -46,7 +46,7 @@ MAGICK_API_URL = os.getenv(
 # SiliconFlow/Magick API 格式: 使用对应平台提供的模型 ID
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OLLAMA_MODEL_NAME = os.getenv("OLLAMA_MODEL_NAME", "deepseek-r1:8b")
-SILICONFLOW_MODEL_NAME = os.getenv("SILICONFLOW_MODEL_NAME", "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B")
+SILICONFLOW_MODEL_NAME = os.getenv("SILICONFLOW_MODEL_NAME", "deepseek-v4-flash")
 MAGICK_MODEL_NAME = os.getenv("MAGICK_MODEL_NAME", "gpt-4o-mini")
 RERANK_METHOD = os.getenv("RERANK_METHOD", "cross_encoder")
 

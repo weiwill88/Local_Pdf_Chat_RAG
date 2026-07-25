@@ -8,6 +8,8 @@ BM25 稀疏检索索引 —— 基于关键词的传统检索
 - 两者混合使用（Hybrid Search）可以显著提升检索效果
 """
 
+import os
+import json
 import logging
 import numpy as np
 import jieba
@@ -61,6 +63,38 @@ class BM25IndexManager:
         self.doc_mapping = {}
         self.tokenized_corpus = []
         self.raw_corpus = []
+
+    def save(self, directory):
+        """将 BM25 索引保存到磁盘"""
+        os.makedirs(directory, exist_ok=True)
+        # doc_mapping 的 key 是 int，转为 str 以支持 JSON 序列化
+        str_mapping = {str(k): v for k, v in self.doc_mapping.items()}
+        with open(os.path.join(directory, "bm25_doc_mapping.json"), "w", encoding="utf-8") as f:
+            json.dump(str_mapping, f, ensure_ascii=False)
+        with open(os.path.join(directory, "bm25_raw_corpus.json"), "w", encoding="utf-8") as f:
+            json.dump(self.raw_corpus, f, ensure_ascii=False)
+        with open(os.path.join(directory, "bm25_tokenized_corpus.json"), "w", encoding="utf-8") as f:
+            json.dump(self.tokenized_corpus, f, ensure_ascii=False)
+
+    def load(self, directory):
+        """从磁盘加载 BM25 索引"""
+        paths = [
+            os.path.join(directory, "bm25_doc_mapping.json"),
+            os.path.join(directory, "bm25_raw_corpus.json"),
+            os.path.join(directory, "bm25_tokenized_corpus.json"),
+        ]
+        if not all(os.path.exists(p) for p in paths):
+            return False
+        with open(paths[0], "r", encoding="utf-8") as f:
+            str_mapping = json.load(f)
+            self.doc_mapping = {int(k): v for k, v in str_mapping.items()}
+        with open(paths[1], "r", encoding="utf-8") as f:
+            self.raw_corpus = json.load(f)
+        with open(paths[2], "r", encoding="utf-8") as f:
+            self.tokenized_corpus = json.load(f)
+        self.bm25_index = BM25Okapi(self.tokenized_corpus)
+        logging.info(f"BM25 索引已加载（{len(self.raw_corpus)} 个文档）")
+        return True
 
 
 # 模块级单例
