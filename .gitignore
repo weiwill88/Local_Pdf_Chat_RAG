@@ -30,3 +30,10 @@ test_*.md
 # OS
 .DS_Store
 Thumbs.db
+
+# 应用日志
+rag_app_*.log
+
+# 测试文档
+test_*.pptx
+test_*.xlsx

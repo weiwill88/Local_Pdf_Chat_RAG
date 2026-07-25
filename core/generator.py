@@ -5,10 +5,12 @@ LLM 调用 —— 大模型回答生成（Ollama + SiliconFlow + Magick API）
 - Prompt Engineering：如何构建高质量的提示词模板
 - 流式输出 vs 非流式输出的区别
 - 多模型适配：本地 Ollama、云端 SiliconFlow API 和 Magick API 的对接
+- 溯源引用：在回答末尾标注来源文档名和文本块编号
 """
 
 import json
 import logging
+import re
 import requests
 from config import (
     SILICONFLOW_API_KEY, SILICONFLOW_API_URL,
@@ -54,7 +56,7 @@ def _extract_openai_compatible_content(result):
 
 def _call_openai_compatible_api(provider_name, api_key, api_url, model_name,
                                 prompt, temperature=0.7, max_tokens=1024,
-                                extra_payload=None):
+                                extra_payload=None, timeout=180):
     """调用 OpenAI-compatible Chat Completions API 获取回答。"""
     if not api_key:
         logging.error(f"未设置 {provider_name} API Key")
@@ -79,11 +81,15 @@ def _call_openai_compatible_api(provider_name, api_key, api_url, model_name,
             "Content-Type": "application/json; charset=utf-8"
         }
         json_payload = json.dumps(payload, ensure_ascii=False).encode('utf-8')
-        response = requests.post(chat_url, data=json_payload, headers=headers, timeout=180)
+        response = requests.post(chat_url, data=json_payload, headers=headers, timeout=timeout)
         response.raise_for_status()
         result = response.json()
         return _extract_openai_compatible_content(result)
 
+    except requests.exceptions.Timeout:
+        return f"⏱️ {provider_name} 请求超时（{timeout}秒），请检查网络连接后重试。"
+    except requests.exceptions.ConnectionError:
+        return f"🔌 {provider_name} 网络连接失败，请检查网络设置。"
     except requests.exceptions.HTTPError as e:
         logging.error(f"调用{provider_name} API时出错: {str(e)}")
         return (
@@ -193,7 +199,7 @@ def _build_context(all_contexts, all_doc_ids, all_metadata, enable_web_search):
     context_parts = []
     sources_for_conflict = []
 
-    for doc, doc_id, metadata in zip(all_contexts, all_doc_ids, all_metadata):
+    for idx, (doc, doc_id, metadata) in enumerate(zip(all_contexts, all_doc_ids, all_metadata)):
         source_type = metadata.get('source', '本地文档')
         source_item = {'text': doc, 'type': source_type}
 
@@ -205,7 +211,8 @@ def _build_context(all_contexts, all_doc_ids, all_metadata, enable_web_search):
             source_item['title'] = title
         else:
             source = metadata.get('source', '未知来源')
-            context_parts.append(f"[本地文档: {source}]\n{doc}")
+            chunk_label = metadata.get('chunk_id', doc_id)
+            context_parts.append(f"[本地文档: {source}] [块: {chunk_label}]\n{doc}")
             source_item['source'] = source
 
         sources_for_conflict.append(source_item)
@@ -213,11 +220,66 @@ def _build_context(all_contexts, all_doc_ids, all_metadata, enable_web_search):
     return "\n\n".join(context_parts), sources_for_conflict
 
 
-def query_answer(question, enable_web_search=False, model_choice="siliconflow", progress=None):
+def _build_citation_section(sources_info):
+    """
+    构建溯源引用 HTML 片段
+
+    在回答末尾追加参考资料列表，每个引用包含：
+    - 来源文档名
+    - 文本块编号
+    - 可折叠的原文预览
+
+    Args:
+        sources_info: [{"source": ..., "chunk_id": ..., "preview": ...}]
+
+    Returns:
+        HTML 格式的引用片段
+    """
+    if not sources_info:
+        return ""
+
+    citations = []
+    seen_sources = {}
+
+    for idx, src in enumerate(sources_info, 1):
+        source_name = src.get("source", "未知来源")
+        chunk_id = src.get("chunk_id", "")
+        preview = src.get("preview", "")
+
+        if source_name not in seen_sources:
+            seen_sources[source_name] = len(seen_sources) + 1
+            citations.append(f"\n📄 **来源 {seen_sources[source_name]}: {source_name}**")
+
+        # 原文可折叠
+        escaped_preview = preview.replace("<", "&lt;").replace(">", "&gt;")
+        citations.append(
+            f'  - 片段 [{idx}]: '
+            f'<details><summary>查看原文片段</summary>\n\n{escaped_preview}\n\n</details>'
+        )
+
+    return "\n\n---\n\n**📚 参考资料**\n" + "\n".join(citations)
+
+
+def query_answer(question, enable_web_search=False, model_choice="siliconflow",
+                 progress=None, alpha=None, use_parent_retriever=True,
+                 use_mmr=True, mmr_lambda=None):
     """
     问答处理主流程（非流式）
 
-    完整流程：递归检索 → 构建上下文 → 矛盾检测 → 构建Prompt → LLM生成
+    完整流程：递归检索 → 构建上下文 → 矛盾检测 → 构建Prompt → LLM生成 → 溯源引用
+
+    Args:
+        question: 用户问题
+        enable_web_search: 是否启用联网搜索
+        model_choice: 模型选择
+        progress: 进度回调
+        alpha: 混合检索权重（0=纯BM25, 1=纯向量）
+        use_parent_retriever: 是否启用父文档检索
+        use_mmr: 是否启用 MMR 重排序
+        mmr_lambda: MMR 多样性参数
+
+    Returns:
+        str: 回答文本（含溯源引用）
     """
     try:
         knowledge_base_exists = vector_store.is_ready
@@ -227,42 +289,82 @@ def query_answer(question, enable_web_search=False, model_choice="siliconflow", 
         if progress:
             progress(0.3, desc="执行递归检索...")
 
-        all_contexts, all_doc_ids, all_metadata = recursive_retrieval(
-            initial_query=question, enable_web_search=enable_web_search, model_choice=model_choice
-        )
+        # 检索阶段
+        try:
+            all_contexts, all_doc_ids, all_metadata, sources_info = recursive_retrieval(
+                initial_query=question, enable_web_search=enable_web_search,
+                model_choice=model_choice, alpha=alpha,
+                use_parent_retriever=use_parent_retriever,
+                use_mmr=use_mmr, mmr_lambda=mmr_lambda
+            )
+        except Exception as e:
+            logging.error(f"检索阶段失败: {str(e)}")
+            return f"🔍 文档检索失败: {str(e)}。请确认知识库包含有效内容。"
 
-        context, sources = _build_context(all_contexts, all_doc_ids, all_metadata, enable_web_search)
+        if not all_contexts and not enable_web_search:
+            return "⚠️ 未在知识库中找到相关答案，请尝试换一种方式提问或上传更多文档。"
+
+        # 构建上下文
+        try:
+            context, sources = _build_context(all_contexts, all_doc_ids, all_metadata, enable_web_search)
+        except Exception as e:
+            return f"📄 上下文构建失败: {str(e)}"
+
         conflict_detected = detect_conflicts(sources)
         time_sensitive = any(w in question for w in ["最新", "今年", "当前", "最近", "刚刚"])
 
-        prompt = _build_prompt(question, context, enable_web_search,
-                               knowledge_base_exists, time_sensitive, conflict_detected)
+        # 构建 Prompt
+        try:
+            prompt = _build_prompt(question, context, enable_web_search,
+                                   knowledge_base_exists, time_sensitive, conflict_detected)
+        except Exception as e:
+            return f"📝 提示词构建失败: {str(e)}"
 
         if progress:
             progress(0.8, desc="生成回答...")
 
-        if model_choice in ("siliconflow", "magick"):
-            result = call_cloud_api(prompt, model_choice, temperature=0.7, max_tokens=1536)
-        elif model_choice == "ollama":
-            response = get_session().post(
-                "http://localhost:11434/api/generate",
-                json={"model": OLLAMA_MODEL_NAME, "prompt": prompt, "stream": False},
-                timeout=180, headers={'Connection': 'close'}
-            )
-            response.raise_for_status()
-            result = str(response.json().get("response", "未获取到有效回答"))
-        else:
-            return f"错误：未知模型选择 {model_choice}"
+        # 调用 LLM
+        try:
+            if model_choice in ("siliconflow", "magick"):
+                result = call_cloud_api(prompt, model_choice, temperature=0.7, max_tokens=1536)
+            elif model_choice == "ollama":
+                response = get_session().post(
+                    "http://localhost:11434/api/generate",
+                    json={"model": OLLAMA_MODEL_NAME, "prompt": prompt, "stream": False},
+                    timeout=180, headers={'Connection': 'close'}
+                )
+                response.raise_for_status()
+                result = str(response.json().get("response", "未获取到有效回答"))
+            else:
+                return f"错误：未知模型选择 {model_choice}"
+        except requests.exceptions.Timeout:
+            return "⏱️ 模型请求超时（180秒），请稍后重试或选择其他模型。"
+        except requests.exceptions.ConnectionError:
+            return "🔌 无法连接到模型服务，请检查模型配置和网络连接。"
+        except Exception as e:
+            return f"🤖 模型生成失败: {str(e)}。请检查模型配置。"
 
-        return process_thinking_content(result)
+        # 处理思考链
+        answer = process_thinking_content(result)
+
+        # 追加溯源引用
+        if all_doc_ids and sources_info:
+            citation = _build_citation_section(sources_info)
+            answer += citation
+
+        return answer
 
     except json.JSONDecodeError:
         return "响应解析失败，请重试"
+    except MemoryError:
+        return "⚠️ 内存不足，请减少文档大小或重启应用"
     except Exception as e:
         return f"系统错误: {str(e)}"
 
 
-def stream_answer(question, enable_web_search=False, model_choice="siliconflow", progress=None):
+def stream_answer(question, enable_web_search=False, model_choice="siliconflow",
+                  progress=None, alpha=None, use_parent_retriever=True,
+                  use_mmr=True, mmr_lambda=None):
     """问答处理主流程（流式，用于 Gradio generator 模式）"""
     try:
         knowledge_base_exists = vector_store.is_ready
@@ -273,9 +375,16 @@ def stream_answer(question, enable_web_search=False, model_choice="siliconflow",
         if progress:
             progress(0.3, desc="执行递归检索...")
 
-        all_contexts, all_doc_ids, all_metadata = recursive_retrieval(
-            initial_query=question, enable_web_search=enable_web_search, model_choice=model_choice
-        )
+        try:
+            all_contexts, all_doc_ids, all_metadata, sources_info = recursive_retrieval(
+                initial_query=question, enable_web_search=enable_web_search,
+                model_choice=model_choice, alpha=alpha,
+                use_parent_retriever=use_parent_retriever,
+                use_mmr=use_mmr, mmr_lambda=mmr_lambda
+            )
+        except Exception as e:
+            yield f"🔍 文档检索失败: {str(e)}", "遇到错误"
+            return
 
         context, sources = _build_context(all_contexts, all_doc_ids, all_metadata, enable_web_search)
         conflict_detected = detect_conflicts(sources)
@@ -286,7 +395,10 @@ def stream_answer(question, enable_web_search=False, model_choice="siliconflow",
 
         if model_choice in ("siliconflow", "magick"):
             full_answer = call_cloud_api(prompt, model_choice, temperature=0.7, max_tokens=1536)
-            yield process_thinking_content(full_answer), "完成!"
+            answer = process_thinking_content(full_answer)
+            if all_doc_ids and sources_info:
+                answer += _build_citation_section(sources_info)
+            yield answer, "完成!"
         elif model_choice == "ollama":
             response = get_session().post(
                 "http://localhost:11434/api/generate",
@@ -303,7 +415,10 @@ def stream_answer(question, enable_web_search=False, model_choice="siliconflow",
                     else:
                         yield full_answer, "生成回答中..."
 
-            yield process_thinking_content(full_answer), "完成!"
+            answer = process_thinking_content(full_answer)
+            if all_doc_ids and sources_info:
+                answer += _build_citation_section(sources_info)
+            yield answer, "完成!"
         else:
             yield f"错误：未知模型选择 {model_choice}", "遇到错误"
 

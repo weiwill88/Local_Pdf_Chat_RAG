@@ -67,6 +67,18 @@ def is_configured_api_key(api_key):
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CHUNK_SIZE = 400          # 文本分块大小（字符数）
 CHUNK_OVERLAP = 40        # 相邻分块的重叠字符数
+
+# ━━━ Parent Document Retriever 参数 ━━━
+PARENT_CHUNK_SIZE = 800       # 父文档块大小（字符数）
+PARENT_CHUNK_OVERLAP = 80     # 父文档块重叠
+CHILD_CHUNK_SIZE = 200        # 子文档块大小（字符数）
+CHILD_CHUNK_OVERLAP = 20      # 子文档块重叠
+USE_PARENT_RETRIEVER = True   # 是否启用父文档检索
+
+# ━━━ MMR 参数 ━━━
+MMR_LAMBDA = 0.5              # MMR 多样性阈值：1=纯相关，0=纯多样
+MMR_TOP_K = 8                 # MMR 重排后保留的候选数
+
 HYBRID_ALPHA = 0.7        # 混合检索中语义检索的权重（0-1）
 RETRIEVAL_TOP_K = 10      # 检索返回的候选文档数量
 RERANK_TOP_K = 5          # 重排序后保留的文档数量

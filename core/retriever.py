@@ -1,18 +1,23 @@
 """
-检索器 —— 混合检索 + 递归检索策略
+检索器 —— 混合检索 + 递归检索策略 + Parent Document Retriever
 
 学习要点：
 - 混合检索（Hybrid Search）结合语义检索和关键词检索的优势
-- alpha 参数控制两者权重（0.7 = 70% 语义 + 30% 关键词）
-- 递归检索通过多轮迭代，利用 LLM 改写查询获取更全面的信息
+- alpha 参数控制两者权重（0 = 纯向量，1 = 纯 BM25）
+- Parent Document Retriever：子块检索 → 父块上下文
+- MMR 最大边际相关性：平衡相关性与多样性
+
+Parent Retriever 数据流：
+  查询 → 向量+BM25检索子块 → 混合排序 → 子块→父块映射 → MMR重排 → 重排序 → LLM
 """
 
 import logging
 from config import HYBRID_ALPHA, RETRIEVAL_TOP_K, RERANK_TOP_K, MAX_RETRIEVAL_ITERATIONS
 from core.vector_store import vector_store
 from core.bm25_index import bm25_manager
-from core.embeddings import encode_query
+from core.embeddings import encode_query, encode_texts
 from core.reranker import rerank_results
+from core.parent_retriever import parent_retrieve, mmr_rerank
 from features.web_search import check_serpapi_key, search_web
 
 
@@ -25,7 +30,7 @@ def hybrid_merge(semantic_results, bm25_results, alpha=None):
     Args:
         semantic_results: {'ids': [[...]], 'documents': [[...]], 'metadatas': [[...]]}
         bm25_results: [{'id': ..., 'score': ..., 'content': ...}]
-        alpha: 语义检索权重
+        alpha: 语义检索权重，0=纯BM25，1=纯向量
 
     Returns:
         排序后的 [(doc_id, {'score': ..., 'content': ..., 'metadata': ...})]
@@ -76,20 +81,86 @@ def hybrid_merge(semantic_results, bm25_results, alpha=None):
     return sorted(merged_dict.items(), key=lambda x: x[1]['score'], reverse=True)
 
 
-def recursive_retrieval(initial_query, max_iterations=None, enable_web_search=False, model_choice="siliconflow"):
+def map_child_to_parent(hybrid_results):
     """
-    递归检索与查询优化
+    将子块检索结果映射回父块
 
-    流程：1.语义+BM25检索 → 2.混合排序 → 3.重排序 → 4.LLM判断是否改写query继续
+    子块去重归并：同一父块的多个子块只保留最高分
+
+    Args:
+        hybrid_results: [(child_id, {'score': ..., 'content': ..., 'metadata': ...})]
 
     Returns:
-        (all_contexts, all_doc_ids, all_metadata)
+        [(parent_or_child_id, {'score': ..., 'content': ..., 'metadata': ...,
+                               'child_ids': [...]})]
+        如果存在父块映射，content 为父块完整内容
+    """
+    if not vector_store.child_to_parent_map:
+        # 没有父块映射，直接返回原始结果
+        return hybrid_results
+
+    parent_groups = {}
+    for doc_id, data in hybrid_results:
+        parent_id = vector_store.child_to_parent_map.get(doc_id)
+
+        if parent_id and parent_id in vector_store.parent_chunks_map:
+            parent_content = vector_store.parent_chunks_map[parent_id]
+            if parent_id not in parent_groups:
+                parent_groups[parent_id] = {
+                    'score': data['score'],
+                    'content': parent_content,
+                    'metadata': data['metadata'].copy(),
+                    'child_ids': [doc_id],
+                }
+            else:
+                parent_groups[parent_id]['score'] = max(
+                    parent_groups[parent_id]['score'], data['score']
+                )
+                parent_groups[parent_id]['child_ids'].append(doc_id)
+        else:
+            # 没有父块的子块，直接作为独立结果
+            if doc_id not in parent_groups:
+                parent_groups[doc_id] = {
+                    'score': data['score'],
+                    'content': data['content'],
+                    'metadata': data['metadata'],
+                    'child_ids': [doc_id],
+                }
+
+    sorted_parents = sorted(
+        parent_groups.items(), key=lambda x: x[1]['score'], reverse=True
+    )
+    return sorted_parents
+
+
+def recursive_retrieval(initial_query, max_iterations=None, enable_web_search=False,
+                        model_choice="siliconflow", alpha=None, use_parent_retriever=True,
+                        use_mmr=True, mmr_lambda=None):
+    """
+    递归检索与查询优化（增强版：支持 Parent Retriever + MMR）
+
+    流程：1.语义+BM25检索子块 → 2.混合排序 → 3.子块→父块映射
+          → 4.MMR重排 → 5.重排序 → 6.LLM判断是否继续
+
+    Args:
+        initial_query: 初始查询
+        max_iterations: 递归迭代次数
+        enable_web_search: 是否启用联网搜索
+        model_choice: 模型选择
+        alpha: 混合检索权重（0=纯BM25, 1=纯向量）
+        use_parent_retriever: 是否启用父文档检索
+        use_mmr: 是否启用 MMR 重排序
+        mmr_lambda: MMR 多样性参数
+
+    Returns:
+        (all_contexts, all_doc_ids, all_metadata, sources_info)
     """
     if max_iterations is None:
         max_iterations = MAX_RETRIEVAL_ITERATIONS
 
     query = initial_query
     all_contexts, all_doc_ids, all_metadata = [], [], []
+    all_sources_info = []
 
     for i in range(max_iterations):
         logging.info(f"递归检索 {i + 1}/{max_iterations}，当前 Query: {query}")
@@ -103,23 +174,53 @@ def recursive_retrieval(initial_query, max_iterations=None, enable_web_search=Fa
             except Exception as e:
                 logging.error(f"网络搜索出错: {str(e)}")
 
-        # 语义检索
+        # ━━━ 语义检索 ━━━
         query_embedding = encode_query(query)
         sem_docs, sem_ids, sem_metas = vector_store.search(query_embedding, k=RETRIEVAL_TOP_K)
-
         prepared = {"ids": [sem_ids], "documents": [sem_docs], "metadatas": [sem_metas]}
 
-        # BM25 检索
+        # ━━━ BM25 检索 ━━━
         bm25_res = bm25_manager.search(query, top_k=RETRIEVAL_TOP_K) if bm25_manager.bm25_index else []
 
-        # 混合排序 → 重排序
-        hybrid = hybrid_merge(prepared, bm25_res)
+        # ━━━ 混合排序 ━━━
+        hybrid = hybrid_merge(prepared, bm25_res, alpha=alpha)
+
+        # ━━━ 子块 → 父块映射（Parent Retriever） ━━━
+        if use_parent_retriever:
+            hybrid = map_child_to_parent(hybrid)
+
+        # 准备数据用于重排序
         ids_iter, docs_iter, meta_iter = [], [], []
         for doc_id, data in hybrid[:RETRIEVAL_TOP_K]:
             ids_iter.append(doc_id)
             docs_iter.append(data['content'])
             meta_iter.append(data['metadata'])
 
+        # ━━━ MMR 重排序（在交叉编码器之前，对父块级别做多样性去重） ━━━
+        if use_mmr and docs_iter and query_embedding is not None:
+            try:
+                # 对候选文本编码向量用于 MMR
+                cand_embeddings = encode_texts(docs_iter)
+                mmr_results = mmr_rerank(
+                    query_embedding, cand_embeddings, docs_iter, ids_iter,
+                    lambda_val=mmr_lambda, top_k=len(docs_iter)
+                )
+                if mmr_results:
+                    ids_iter = [r[0] for r in mmr_results]
+                    docs_iter = [r[1] for r in mmr_results]
+                    # 恢复 metadatas 顺序
+                    meta_iter = [
+                        next(m for d_id, m in zip(ids_iter, meta_iter)
+                             if d_id == r[0]) if False else
+                        vector_store.metadatas_map.get(r[0], {})
+                        for r in mmr_results
+                    ]
+                    # 简化：直接从 vector_store 获取 metadata
+                    meta_iter = [vector_store.metadatas_map.get(pid, {}) for pid in ids_iter]
+            except Exception as e:
+                logging.error(f"MMR 重排序失败: {str(e)}")
+
+        # ━━━ 重排序（Cross-Encoder） ━━━
         if docs_iter:
             try:
                 reranked = rerank_results(query, docs_iter, ids_iter, meta_iter, top_k=RERANK_TOP_K)
@@ -130,19 +231,26 @@ def recursive_retrieval(initial_query, max_iterations=None, enable_web_search=Fa
         else:
             reranked = []
 
-        # 整合结果
+        # ━━━ 整合结果 ━━━
         current_contexts = web_texts[:]
         for doc_id, data in reranked:
             if doc_id not in all_doc_ids:
                 all_doc_ids.append(doc_id)
                 all_contexts.append(data['content'])
                 all_metadata.append(data['metadata'])
+                # 构建来源信息
+                source_name = data['metadata'].get('source', '未知来源')
+                all_sources_info.append({
+                    "source": source_name,
+                    "chunk_id": doc_id,
+                    "preview": data['content'][:200] + "..." if len(data['content']) > 200 else data['content'],
+                })
             current_contexts.append(data['content'])
 
         if i == max_iterations - 1:
             break
 
-        # LLM 判断是否需要继续
+        # ━━━ LLM 判断是否需要继续 ━━━
         if current_contexts:
             summary = "\n".join(current_contexts[:3])
             prompt = f"""你是一个查询优化助手。根据以下信息判断是否需要新的查询。
@@ -174,4 +282,4 @@ def recursive_retrieval(initial_query, max_iterations=None, enable_web_search=Fa
         else:
             break
 
-    return all_contexts, all_doc_ids, all_metadata
+    return all_contexts, all_doc_ids, all_metadata, all_sources_info

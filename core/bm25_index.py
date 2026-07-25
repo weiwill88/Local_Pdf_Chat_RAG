@@ -92,6 +92,10 @@ class BM25IndexManager:
             self.raw_corpus = json.load(f)
         with open(paths[2], "r", encoding="utf-8") as f:
             self.tokenized_corpus = json.load(f)
+        if not self.tokenized_corpus:
+            logging.warning("BM25 知识库为空，跳过索引构建")
+            self.bm25_index = None
+            return True
         self.bm25_index = BM25Okapi(self.tokenized_corpus)
         logging.info(f"BM25 索引已加载（{len(self.raw_corpus)} 个文档）")
         return True

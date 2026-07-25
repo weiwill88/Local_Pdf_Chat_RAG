@@ -29,7 +29,7 @@ from config import (
 
 # 导入核心模块
 from utils.document_loader import load_document, is_ocr_available
-from core.text_splitter import split_text
+from core.text_splitter import split_text, split_text_parent_child
 from core.embeddings import encode_texts
 from core.vector_store import vector_store
 from core.bm25_index import bm25_manager
@@ -77,8 +77,15 @@ _tesseract_status_html = (
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 文档处理
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-def process_multiple_files(files, kb_name_input="", kb_selector_val="", progress=gr.Progress()):
-    """处理多个文件：提取文本 → 分块 → 向量化 → 构建索引 → 保存知识库"""
+def process_multiple_files(files, kb_name_input="", kb_selector_val="",
+                            progress=gr.Progress()):
+    """处理多个文件：提取文本 → 双层分块 → 向量化 → 构建索引 → 保存知识库
+
+    新增功能：
+    - Parent Document Retriever 双层分块
+    - SHA256 文件哈希去重
+    - 文件注册与追踪
+    """
     if not files:
         return "请选择要上传的文件", [], gr.update()
 
@@ -97,39 +104,98 @@ def process_multiple_files(files, kb_name_input="", kb_selector_val="", progress
             kb_manager.load_kb(target_kb)
         else:
             progress(0.05, desc=f"创建新知识库「{target_kb}」...")
-            # 如果是新知识库且有切换过其他库，先清空
             if kb_manager.current_kb != target_kb:
                 vector_store.clear()
                 bm25_manager.clear()
 
-        # 收集已有 + 新文件的全部文本块
+        total_files = len(files)
+        processed_results = []
+
+        # 收集已有的全部数据
         all_chunks = list(vector_store.contents_map.values())
         all_metadatas = list(vector_store.metadatas_map.values())
         all_ids = list(vector_store.id_order)
 
-        total_files = len(files)
-        processed_results = []
+        # 保存已有的 parent/file 数据（build_index 会清空，所以先备份）
+        existing_parent_chunks = dict(vector_store.parent_chunks_map)
+        existing_child_to_parent = dict(vector_store.child_to_parent_map)
+        existing_file_index = dict(vector_store.file_index)
+        existing_file_hashes = dict(vector_store.file_hashes)
+        existing_file_meta = dict(vector_store.file_meta)
+
         batch_chunks, batch_metadatas, batch_ids = [], [], []
+        # Parent 数据（新文件产生的）
+        new_parent_chunks = []      # 父块文本
+        new_parent_ids = []         # 父块 ID
+        new_child_to_parent = {}    # {child_id: parent_id}
+        new_file_info = {}          # {file_name: {type, hash, upload_time}}
 
         for idx, file in enumerate(files, 1):
             try:
                 file_name = os.path.basename(file.name)
                 progress((idx - 1) / total_files, desc=f"处理文件 {idx}/{total_files}: {file_name}")
 
+                # SHA256 去重校验
+                file_hash = vector_store.compute_file_hash(file.name)
+
+                # 检查新旧哈希
+                if file_hash in existing_file_hashes or file_hash in new_file_info:
+                    existing_name = existing_file_hashes.get(file_hash, "") or \
+                                    new_file_info.get(file_hash, {}).get("name", "未知文件")
+                    processed_results.append(f"⏭️ {file_name}: 跳过重复文件（与「{existing_name}」内容相同）")
+                    continue
+
+                # 加载文档
                 docs = load_document(file.name)
                 text = "\n\n".join([doc.page_content for doc in docs])
                 if not text.strip():
                     raise ValueError("文档内容为空或无法提取文本")
 
-                chunks = split_text(text)
-                doc_id = f"doc_{int(time.time())}_{idx}"
-                metadatas = [{"source": file_name, "doc_id": doc_id} for _ in chunks]
-                chunk_ids = [f"{doc_id}_chunk_{i}" for i in range(len(chunks))]
+                file_type = os.path.splitext(file_name)[1].lstrip(".") or "未知"
+                upload_time_str = time.strftime("%Y-%m-%d %H:%M:%S")
+                doc_id_prefix = f"doc_{int(time.time())}_{idx}"
 
-                batch_chunks.extend(chunks)
-                batch_metadatas.extend(metadatas)
-                batch_ids.extend(chunk_ids)
-                processed_results.append(f"✅ {file_name}: 成功处理 {len(chunks)} 个文本块")
+                # Parent-Child 双层分块
+                parent_chunks, child_chunks, child_to_parent, parent_ids_from_split, child_ids_from_split = \
+                    split_text_parent_child(text)
+
+                if not child_chunks:
+                    raise ValueError("分块后内容为空")
+
+                # 生成实际 child_id 和 parent_id（加 doc_id 前缀防止跨文件冲突）
+                actual_parent_ids = [f"{doc_id_prefix}_{pid}" for pid in parent_ids_from_split]
+                actual_child_ids = [f"{doc_id_prefix}_{cid}" for cid in child_ids_from_split]
+
+                # 构建 child_to_parent 映射字典 {child_id: parent_id}
+                for ci, p_idx in enumerate(child_to_parent):
+                    if p_idx < len(actual_parent_ids):
+                        new_child_to_parent[actual_child_ids[ci]] = actual_parent_ids[p_idx]
+
+                # 构建子块元数据
+                child_metadatas = [
+                    {"source": file_name, "doc_id": actual_parent_ids[child_to_parent[ci]] if ci < len(child_to_parent) else doc_id_prefix}
+                    for ci in range(len(child_chunks))
+                ]
+
+                # 累加到 batch
+                batch_chunks.extend(child_chunks)
+                batch_metadatas.extend(child_metadatas)
+                batch_ids.extend(actual_child_ids)
+                new_parent_chunks.extend(parent_chunks)
+                new_parent_ids.extend(actual_parent_ids)
+
+                # 注册文件信息
+                new_file_info[file_name] = {
+                    "type": file_type,
+                    "hash": file_hash,
+                    "upload_time": upload_time_str,
+                    "chunk_count": len(child_chunks),
+                    "chunk_ids": actual_child_ids,
+                }
+
+                processed_results.append(
+                    f"✅ {file_name}: {len(parent_chunks)} 个父块, {len(child_chunks)} 个子块"
+                )
 
             except Exception as e:
                 logging.error(f"处理文件 {file_name} 时出错: {str(e)}")
@@ -140,21 +206,45 @@ def process_multiple_files(files, kb_name_input="", kb_selector_val="", progress
         all_metadatas.extend(batch_metadatas)
         all_ids.extend(batch_ids)
 
-        if all_chunks:
-            progress(0.75, desc="生成文本嵌入向量...")
-            embeddings = encode_texts(all_chunks, show_progress=True)
+        if not all_chunks:
+            return "\n".join(processed_results) + "\n⚠️ 没有有效内容可处理", [], gr.update()
 
-            progress(0.85, desc="构建FAISS索引...")
-            vector_store.build_index(all_chunks, all_ids, all_metadatas, embeddings)
+        progress(0.75, desc="生成文本嵌入向量...")
+        embeddings = encode_texts(all_chunks, show_progress=True)
 
-            progress(0.90, desc="构建BM25检索索引...")
-            bm25_manager.build_index(all_chunks, all_ids)
+        progress(0.85, desc="构建FAISS索引...")
+        vector_store.build_index(all_chunks, all_ids, all_metadatas, embeddings)
 
-            progress(0.95, desc=f"保存知识库「{target_kb}」到磁盘...")
-            kb_manager.save_current_kb(target_kb)
+        # 手动恢复并追加 parent/file 数据（build_index 已清空）
+        # parent 数据
+        vector_store.parent_chunks_map.update(existing_parent_chunks)
+        vector_store.child_to_parent_map.update(existing_child_to_parent)
+        # 新映射
+        for pid, p_text in zip(new_parent_ids, new_parent_chunks):
+            vector_store.parent_chunks_map[pid] = p_text
+        vector_store.child_to_parent_map.update(new_child_to_parent)
+
+        # 文件索引
+        vector_store.file_index.update(existing_file_index)
+        vector_store.file_hashes.update(existing_file_hashes)
+        vector_store.file_meta.update(existing_file_meta)
+        for fname, finfo in new_file_info.items():
+            vector_store.file_index[fname] = finfo["chunk_ids"]
+            vector_store.file_hashes[finfo["hash"]] = fname
+            vector_store.file_meta[fname] = {
+                "type": finfo["type"],
+                "upload_time": finfo["upload_time"],
+                "chunk_count": finfo["chunk_count"],
+            }
+
+        progress(0.90, desc="构建BM25检索索引...")
+        bm25_manager.build_index(all_chunks, all_ids)
+
+        progress(0.95, desc=f"保存知识库「{target_kb}」到磁盘...")
+        kb_manager.save_current_kb(target_kb)
 
         action = "新建" if is_new_kb else "更新"
-        summary = f"\n{action}知识库「{target_kb}」完成，共 {len(all_chunks)} 个文本块"
+        summary = f"\n{action}知识库「{target_kb}」完成，共 {len(all_chunks)} 个子块, {len(vector_store.parent_chunks_map)} 个父块"
         processed_results.append(summary)
 
         # 刷新下拉框
@@ -375,6 +465,12 @@ with gr.Blocks(title="本地RAG问答系统") as demo:
                                 label="模型选择", info="选择使用本地模型或云端模型"
                             )
                         with gr.Row():
+                            alpha_slider = gr.Slider(
+                                minimum=0.0, maximum=1.0, value=0.7, step=0.05,
+                                label="检索权重 α",
+                                info="0=纯向量检索, 1=纯BM25关键词检索, 默认0.7偏向语义"
+                            )
+                        with gr.Row():
                             ask_btn = gr.Button("🔍 开始提问", variant="primary", scale=2)
                             clear_btn = gr.Button("🗑️ 清空对话", variant="secondary", elem_classes="clear-button", scale=1)
                     api_info = gr.HTML("")
@@ -455,6 +551,27 @@ with gr.Blocks(title="本地RAG问答系统") as demo:
                         clear_logs_btn = gr.Button("🗑️ 清空日志", variant="secondary")
                     log_display = gr.HTML("", elem_classes="log-container")
 
+        # ━━━ 文件管理标签页 ━━━
+        with gr.TabItem("📂 文件管理"):
+            with gr.Column():
+                gr.Markdown("## 📂 知识库文件管理")
+                with gr.Row():
+                    refresh_files_btn = gr.Button("🔄 刷新文件列表", variant="primary")
+                    clear_all_files_btn = gr.Button("🗑️ 清空所有文件", variant="stop")
+                files_table = gr.Dataframe(
+                    headers=["文件名", "类型", "上传时间", "分块数"],
+                    interactive=False, wrap=True,
+                    elem_classes="file-table"
+                )
+                files_status = gr.Markdown("点击「刷新文件列表」查看已上传的文件")
+                with gr.Row():
+                    delete_file_input = gr.Textbox(
+                        label="输入要删除的文件名",
+                        placeholder="从上方表格中复制文件名",
+                        scale=3
+                    )
+                    delete_file_btn = gr.Button("删除选中文件", variant="secondary", scale=1)
+
     # ━━━ 事件处理函数 ━━━
     def clear_chat_history():
         kb_name = kb_manager.current_kb
@@ -462,7 +579,7 @@ with gr.Blocks(title="本地RAG问答系统") as demo:
             clear_history(kb_name)
         return [], "对话已清空（数据库已同步清除）"
 
-    def process_chat(question, history, enable_web_search, model_choice_val):
+    def process_chat(question, history, enable_web_search, model_choice_val, alpha):
         if history is None or not isinstance(history, list):
             history = []
 
@@ -471,9 +588,11 @@ with gr.Blocks(title="本地RAG问答系统") as demo:
             <p>📢 <strong>功能说明：</strong></p>
             <p>1. <strong>联网搜索</strong>：%s</p>
             <p>2. <strong>模型选择</strong>：当前使用 <strong>%s</strong></p>
+            <p>3. <strong>检索权重 α</strong>：<strong>%.2f</strong> (0=纯向量, 1=纯BM25)</p>
         </div>""" % (
             "已启用" if enable_web_search else "未启用",
-            get_model_display_name(model_choice_val)
+            get_model_display_name(model_choice_val),
+            alpha
         )
 
         if not question or question.strip() == "":
@@ -481,7 +600,16 @@ with gr.Blocks(title="本地RAG问答系统") as demo:
             return history, "", api_text
 
         try:
-            answer = query_answer(question, enable_web_search, model_choice_val)
+            answer = query_answer(question, enable_web_search, model_choice_val, alpha=alpha)
+        except ValueError as e:
+            answer = f"⚠️ 参数错误: {str(e)}"
+            logging.error(f"问答参数错误: {str(e)}")
+        except RuntimeError as e:
+            answer = f"⚠️ 运行时错误: {str(e)}"
+            logging.error(f"问答运行时错误: {str(e)}")
+        except MemoryError:
+            answer = "⚠️ 内存不足，请减少文档大小或重启应用"
+            logging.error("问答处理内存不足")
         except Exception as e:
             answer = f"系统错误: {str(e)}"
             logging.error(f"问答处理异常: {str(e)}")
@@ -554,6 +682,85 @@ with gr.Blocks(title="本地RAG问答系统") as demo:
         history = get_history(kb_name)
         return [{"role": r, "content": c} for r, c, _ in history]
 
+    # ━━━ 文件管理 ━━━
+    def refresh_file_list():
+        """刷新文件管理表格"""
+        kb_name = kb_manager.current_kb
+        if not kb_name:
+            return [], "⚠️ 没有当前知识库，请先创建或切换到知识库"
+        files = vector_store.get_file_list()
+        if not files:
+            return [], "📂 当前知识库中暂无文件"
+        table_data = [
+            [f["name"], f["type"], f["upload_time"], f["chunk_count"]]
+            for f in files
+        ]
+        return table_data, f"共 {len(files)} 个文件"
+
+    def delete_selected_file(file_name):
+        """删除指定文件：彻底移除向量/父块/BM25/文件注册，然后触底重载知识库"""
+        if not file_name or file_name.strip() == "":
+            return gr.update(), "⚠️ 请输入要删除的文件名"
+        file_name = file_name.strip()
+
+        # 检查文件是否存在
+        if file_name not in vector_store.file_index:
+            return gr.update(), f"❌ 文件不存在: 「{file_name}」请先刷新列表确认文件名正确"
+
+        # 1. 从向量库中彻底删除（清除向量/父块/文件注册）
+        success = vector_store.delete_file(file_name)
+        if not success:
+            return gr.update(), f"❌ 文件删除失败: 「{file_name}」"
+
+        # 2. 同步重建 BM25 索引
+        bm25_manager.clear()
+        if vector_store.id_order:
+            remaining_chunks = [
+                vector_store.contents_map[cid]
+                for cid in vector_store.id_order
+                if cid in vector_store.contents_map
+            ]
+            if remaining_chunks:
+                bm25_manager.build_index(remaining_chunks, vector_store.id_order)
+
+        # 3. 持久化到磁盘（覆盖旧 index.faiss + JSON）
+        kb_name = kb_manager.current_kb
+        if kb_name:
+            kb_manager.save_current_kb(kb_name)
+            # 4. 从磁盘重载知识库，确保问答面板使用的是最新数据
+            kb_manager.load_kb(kb_name)
+
+        # 5. 刷新文件列表
+        table, status = refresh_file_list()
+        return table, f"✅ 删除成功: 「{file_name}」（已彻底清除向量块和文本记录）"
+
+    def clear_all_files_action():
+        """清空当前知识库所有文件：清空内存 → 删除磁盘文件 → 重载知识库"""
+        kb_name = kb_manager.current_kb
+        if not kb_name:
+            return [], "⚠️ 没有当前知识库"
+        file_count = len(vector_store.file_index)
+
+        # 1. 清空内存中所有数据
+        vector_store.clear_all_files()
+        bm25_manager.clear()
+
+        # 2. 删除磁盘上残留的 index.faiss（防止下次 load 读到旧索引）
+        kb_path = kb_manager.kb_path(kb_name)
+        import os as _os
+        faiss_path = _os.path.join(kb_path, "index.faiss")
+        if _os.path.exists(faiss_path):
+            _os.remove(faiss_path)
+            logging.info(f"已删除磁盘上残留的 FAISS 索引: {faiss_path}")
+
+        # 3. 保存空状态到磁盘（覆盖所有 JSON 为空）
+        kb_manager.save_current_kb(kb_name)
+
+        # 4. 从磁盘重载知识库（确认清空生效）
+        kb_manager.load_kb(kb_name)
+
+        return [], f"✅ 已清空 {file_count} 个文件（知识库已完全重置，问答面板将响应空知识库提示）"
+
     # ━━━ 绑定事件 ━━━
     upload_btn.click(
         process_multiple_files,
@@ -571,7 +778,7 @@ with gr.Blocks(title="本地RAG问答系统") as demo:
         inputs=[],
         outputs=[export_file, status_display]
     )
-    ask_btn.click(process_chat, inputs=[question_input, chatbot, web_search_checkbox, model_choice],
+    ask_btn.click(process_chat, inputs=[question_input, chatbot, web_search_checkbox, model_choice, alpha_slider],
                   outputs=[chatbot, question_input, api_info])
     clear_btn.click(clear_chat_history, inputs=[], outputs=[chatbot, status_display])
     web_search_checkbox.change(update_api_info, inputs=[web_search_checkbox, model_choice], outputs=[api_info])
@@ -592,6 +799,11 @@ with gr.Blocks(title="本地RAG问答系统") as demo:
             localStorage.setItem('rag-theme', isDark ? 'dark' : 'light');
         }
     """)
+
+    # 文件管理事件绑定
+    refresh_files_btn.click(fn=refresh_file_list, outputs=[files_table, files_status])
+    delete_file_btn.click(fn=delete_selected_file, inputs=[delete_file_input], outputs=[files_table, files_status])
+    clear_all_files_btn.click(fn=clear_all_files_action, outputs=[files_table, files_status])
 
     # 页面刷新时重新加载对话历史（解决刷新后历史清空的问题）
     demo.load(
