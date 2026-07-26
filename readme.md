@@ -1,269 +1,383 @@
 <div align="center">
-<h1>📚 本地化智能问答系统 (FAISS版)</h1>
+<h1>🧠 Local Pdf Chat RAG</h1>
+<p><strong>本地化智能问答系统 — 检索增强生成（RAG）v3.0</strong></p>
 <p>
-<img src="https://img.shields.io/badge/Python-3.9%2B-blue" alt="Python版本">
-<img src="https://img.shields.io/badge/License-MIT-green" alt="证书">
-<img src="https://img.shields.io/badge/RAG-Document%20%2B%20网络%20(可选)-orange" alt="RAG类型">
-<img src="https://img.shields.io/badge/UI-Gradio-blueviolet" alt="界面">
-<img src="https://img.shields.io/badge/VectorStore-FAISS-yellow" alt="向量存储">
-<img src="https://img.shields.io/badge/LLM-Ollama%20%7C%20SiliconFlow%20%7C%20Magick%20API-lightgrey" alt="LLM支持">
+<img src="https://img.shields.io/badge/Python-3.13-blue" alt="Python">
+<img src="https://img.shields.io/badge/License-MIT-green" alt="License">
+<img src="https://img.shields.io/badge/UI-Gradio_6.20.0-violet" alt="Gradio">
+<img src="https://img.shields.io/badge/Vector_Store-FAISS-yellow" alt="FAISS">
+<img src="https://img.shields.io/badge/LLM-SiliconFlow_|_Ollama_|_Magick-orange" alt="LLM">
+<img src="https://img.shields.io/badge/Status-v3.0_Complete-brightgreen" alt="Status">
 </p>
+<p>📄 DOCX / PDF / XLSX / PPTX / MD / TXT &nbsp;·&nbsp; 🔍 语义 + BM25 混合检索 &nbsp;·&nbsp; 🌐 联网搜索自动兜底</p>
 </div>
 
-## 🎯 核心学习目标
+---
 
-本项目旨在为希望深入理解RAG（Retrieval-Augmented Generation，检索增强生成）技术原理的开发者提供一个可动手实践的学习平台。
+## 📋 项目简介
 
-*   **拆解RAG黑盒**：亲手实现从文档加载、文本切分、向量化、检索到生成的完整链路
-*   **掌握关键技术选型**：体验FAISS向量检索与BM25关键词检索的混合策略
-*   **实践性能优化技巧**：通过交叉编码器重排序、递归检索等高级功能，学习提升RAG系统准确性
-*   **构建多模型适配能力**：集成本地Ollama、云端SiliconFlow API与Magick API，掌握不同LLM引擎的对接策略
+**Local Pdf Chat RAG** 是一个从零构建的、功能完备的本地化 RAG 问答系统。支持多种格式文档解析、双路混合检索、Cross-Encoder 重排序、Parent Document Retriever 父子块映射、MMR 多样性排序、联网搜索自动兜底、多知识库物理隔离、Ollama 本地大模型一键切换等完整能力链。
 
-## 🌟 核心功能
+> 🎯 **设计目标**：提供一个可直接投入使用的 RAG 系统，同时保持模块化解耦与代码可读性，便于二次开发与学习。
 
-*   📁 **文档处理**：支持上传并处理多种类型的文档（.pdf, .txt, .docx, .md, .html, .csv, .xls, .xlsx），自动分割和向量化
-*   🔍 **混合检索**：FAISS语义检索 + BM25关键词检索，提高检索召回率和准确性
-*   🔄 **结果重排序**：支持交叉编码器（CrossEncoder）和LLM对检索结果进行重排序
-*   🌐 **联网搜索增强 (可选)**：通过SerpAPI获取实时网络信息（需配置API密钥）
-*   🗣️ **本地/云端**：可选择使用本地Ollama大模型、云端SiliconFlow API或Magick API进行推理
-*   🤖 **智能回退**：启动时自动检测可用LLM后端，优先使用已配置的服务
-*   🖥️ **用户友好界面**：基于Gradio构建交互式Web界面
-*   📊 **分块可视化**：在UI上展示文档分块情况，帮助理解数据处理过程
+---
 
-## 📂 项目结构（学习路线）
+## 🏗️ 技术栈
 
-项目按照 **RAG 流水线** 拆分为独立模块，建议按以下顺序逐模块学习：
+| 层级 | 技术选型 | 用途 |
+|------|----------|------|
+| **前端 UI** | Gradio 6.20.0 | Web 交互界面（问答/文件管理/可视化/监控） |
+| **向量引擎** | FAISS (IndexFlatL2/IVFFlat/IVFPQ) | 语义相似度检索，自动按数据量选型 |
+| **文本编码** | Sentence-Transformers all-MiniLM-L6-v2 | 384 维文本嵌入 |
+| **稀疏检索** | rank-bm25 (BM25Okapi) + jieba | 中文关键词检索 |
+| **重排序** | Cross-Encoder distiluse-base-multilingual-cased-v2 | 精排 Top-5 |
+| **LLM 推理** | SiliconFlow API / Ollama 本地 / Magick API | 回答生成 |
+| **联网搜索** | SerpAPI (Google) | 本地召回不足时自动补充 |
+| **文档解析** | PyMuPDF / python-docx / openpyxl / python-pptx / Tesseract OCR | PDF/DOCX/XLSX/PPTX/MD/TXT + 扫描件 |
+| **数据持久化** | SQLite + JSON + FAISS 序列化 | 对话历史 / 索引元数据 / 向量存储 |
+| **REST 接口** | FastAPI | 可选 API 服务 |
+| **系统监控** | psutil | CPU / 内存 / 磁盘实时监控 |
+
+---
+
+## ✨ 三阶段功能清单
+
+### 🔵 第一阶段 — 基础 RAG 能力
+
+| 功能 | 描述 |
+|------|------|
+| ✅ **多格式文档解析** | PDF / DOCX / XLSX / PPTX / MD / TXT 统一加载 |
+| ✅ **扫描件 OCR** | Tesseract 中英文识别 + 二级引擎自检 |
+| ✅ **递归文本分割** | `chunk_size=400`, `overlap=40` |
+| ✅ **FAISS 向量索引** | 按数据量自动选型（FlatL2 / IVFFlat / IVFPQ）|
+| ✅ **BM25 关键词检索** | jieba 分词 + BM25Okapi |
+| ✅ **混合检索** | 语义 0.7 + BM25 0.3 加权融合 |
+| ✅ **Cross-Encoder 重排序** | 精排保留 Top-5 |
+| ✅ **递归检索** | LLM 改写查询，最多 3 轮 |
+| ✅ **多知识库管理** | 创建 / 切换 / 重命名 / 删除 |
+| ✅ **对话历史持久化** | SQLite 存储，按知识库隔离 |
+| ✅ **Markdown 导出** | 对话记录 → .md 文件 |
+| ✅ **DeepSeek 思维链** | `<think>` 解析 → 可折叠 HTML |
+| ✅ **联网搜索** | SerpAPI Google 搜索 |
+| ✅ **FastAPI REST** | `/api/upload`, `/api/ask`, `/api/status` |
+| ✅ **暗色模式** | 主题偏好 localStorage 持久化 |
+
+### 🟡 第二阶段 — 检索升级 + 文件管理
+
+| 功能 | 描述 |
+|------|------|
+| ✅ **Parent Document Retriever** | 父块 800ch + 子块 200ch 双层分割，子块检索→父块上下文 |
+| ✅ **MMR 重排序** | 余弦相似度贪心选择，λ 平衡相关性与多样性 |
+| ✅ **Alpha 权重滑块** | UI 实时调节混合检索权重（0=纯BM25, 1=纯向量） |
+| ✅ **文件列表展示** | Dataframe 显示文件名/类型/上传时间/分块数 |
+| ✅ **单文件删除** | 彻底清除向量/父块/BM25/文件注册 |
+| ✅ **一键清空** | 清空内存 + 删除磁盘残留 |
+| ✅ **SHA256 去重** | 上传文件哈希校验，重复自动跳过 |
+| ✅ **溯源引用** | 回答末尾 `📄 来源 N: 文档名` + 可折叠原文 |
+| ✅ **单条对话删除** | 精确删除用户-助手消息对 |
+| ✅ **指数退避重试** | API 调用异常自动重试 |
+
+### 🟢 第三阶段 — 联网兜底 + 模型切换 + 隔离架构 + 监控交互
+
+| 模块 | 功能 | 描述 |
+|------|------|------|
+| 🌐 **M1 联网增强** | 自动兜底 | 本地召回=0 或 相似度<0.3 → 自动触发 SerpAPI |
+| | 来源分区 | 回答严格区分【本地文档参考】/【网络检索参考】 |
+| | 异常友好提示 | 超时/密钥无效/额度用尽 → 中文提示不崩溃 |
+| | 配置容错 | `.env` 空格/空值自动 strip |
+| 🖥️ **M2 Ollama 适配** | 动态模型列表 | 自动加载本机已安装 Ollama 模型到下拉框 |
+| | 参数面板 | 折叠式 num_ctx / temperature / top_p 滑块 |
+| | 一键切换 | 云端 ↔ 本地模型自由切换，面板自动显隐 |
+| | 服务检测 | Ollama 未启动时优雅降级，不阻塞启动 |
+| 🔒 **M3 物理隔离** | 独立 FAISS | 每个知识库独立 `index.faiss` 文件 |
+| | 独立 SQLite 表 | 每库独立数据表 `chat_history_{sanitized_kb}` |
+| | 文件隔离 | 文件列表/删除/上传强制归属当前选中库 |
+| 📊 **M4 监控交互** | 全局统计 | 总知识库数/文档数/分块数/父块数/磁盘占用 |
+| | KB 拆解 | 下拉选库 → 该库文档/分块/索引大小 |
+| | 运行自检 | OCR / SerpAPI / 云端模型 / Ollama 状态 |
+| | 日志查看器 | 最近 10 条运行日志 |
+| | 工程收尾 | `.gitignore` 完善 / 日志写入文件 |
+
+---
+
+## 🖼️ 使用截图
+
+<!-- 截图是项目展示的重要部分，建议以下场景各截一张图替换 -->
+
+| 页面 | 说明 |
+|------|------|
+| **💬 问答对话** | 文档上传区 + 模型选择 + Alpha 滑块 + 联网搜索勾选框 + 对话记录 + 溯源引用 |
+| **📊 分块可视化** | 表格展示所有文本块（来源/序号/字符数/分词数/内容预览）+ 点击查看详情 |
+| **📂 文件管理** | 按知识库展示文件列表 + 删除 / 清空操作 |
+| **📈 系统监控** | 系统资源 + 全局统计 + 按库拆解 + 运行自检 + 日志查看器 |
+
+<!-- TODO: 请将截图放入 docs/screenshots/ 目录并替换下方路径 -->
+<details>
+<summary>📸 点击查看示例截图占位</summary>
 
 ```
-├── config.py                 # ⚙️ 配置中心（环境变量、超参数、LLM自动检测）
-├── rag_demo.py               # 🖥️ 主入口（Gradio UI + 启动）
-├── api_router.py             # 🔌 REST API 路由
-│
-├── core/                     # 🧠 RAG 核心模块（按流水线顺序学习）
-│   ├── document_loader.py    # 1️⃣ 文档加载 — 多格式文本提取
-│   ├── text_splitter.py      # 2️⃣ 文本分块 — 长文本切分策略
-│   ├── embeddings.py         # 3️⃣ 向量化 — 文本→向量映射
-│   ├── vector_store.py       # 4️⃣ 向量存储 — FAISS索引（自适应选择）
-│   ├── bm25_index.py         # 5️⃣ 稀疏检索 — BM25关键词检索
-│   ├── retriever.py          # 6️⃣ 混合检索 — 语义+关键词融合 + 递归检索
-│   ├── reranker.py           # 7️⃣ 重排序 — 交叉编码器/LLM精排
-│   └── generator.py          # 8️⃣ 生成回答 — Prompt构建 + LLM调用
-│
-├── features/                 # ✨ 扩展功能
-│   ├── web_search.py         # 联网搜索（SerpAPI）
-│   ├── conflict_detector.py  # 矛盾检测
-│   └── thinking_chain.py     # 思维链处理（DeepSeek-R1）
-│
-└── utils/                    # 🔧 工具模块
-    └── network.py            # HTTP Session + 端口检测
+docs/screenshots/
+├── chat_interface.png      # 问答对话页面
+├── chunk_visualization.png # 分块可视化页面
+├── file_management.png     # 文件管理页面
+└── system_monitor.png      # 系统监控页面
 ```
 
-## 🔧 系统架构
+</details>
 
-```mermaid
-graph TD
-    subgraph "用户交互层"
-        A[用户界面] --> |上传文档| B[PDF处理]
-        A --> |提问| C[问答处理]
-    end
+---
 
-    subgraph "数据处理层"
-        B --> D[向量化与存储]
-        C --> |问题向量化| D
-    end
+## 🚀 快速开始
 
-    subgraph "检索层"
-        D --> E[语义检索 + BM25]
-        E --> |获取相关上下文| F[混合重排模块]
-    end
+### 环境要求
 
-    subgraph "生成层"
-        C --> |需外部知识| G[联网搜索]
-        F --> H[LLM推理]
-        G --> H
-        H --> |生成回答| C
-    end
+- **Python** 3.10+
+- **操作系统** Windows / macOS / Linux
+- **可选** Tesseract OCR（扫描版 PDF 需要）
+- **可选** Ollama（使用本地模型需要）
 
-    C --> |回答| A
+### 1. 克隆项目
+
+```bash
+git clone https://github.com/CCC481568794/Local_Pdf_Chat_RAG.git
+cd Local_Pdf_Chat_RAG
 ```
 
-## 🚀 使用方法
+### 2. 创建虚拟环境
 
-### 环境准备
+**Windows (PowerShell):**
+```powershell
+python -m venv venv
+venv\Scripts\activate
+```
 
-1.  **创建并激活虚拟环境** (推荐Python 3.9+):
+**macOS / Linux:**
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
 
-    **方式一：使用 venv（推荐）**
+### 3. 安装依赖
 
-    Mac / Linux：
-    ```bash
-    python3 -m venv rag_env
-    source rag_env/bin/activate
-    ```
+```bash
+pip install -r requirements.txt
+```
 
-    Windows：
-    ```bash
-    python -m venv rag_env
-    rag_env\Scripts\activate
-    ```
+> **关键依赖一览**：`gradio==6.20.0` `sentence-transformers` `faiss-cpu` `rank-bm25` `jieba` `pypdf2` `python-docx` `openpyxl` `python-pptx` `pytesseract` `pdf2image` `psutil` `python-dotenv` `requests`
 
-    **方式二：使用 Conda（可选）**
-    ```bash
-    conda create -n rag_env python=3.10 -y
-    conda activate rag_env
-    ```
+### 4. 配置环境变量
 
-2.  **安装依赖项**:
-    ```bash
-    pip install -r requirements.txt
-    ```
+```bash
+# 从模板创建
+cp example.env .env
+```
 
-3.  **配置环境变量**:
-    ```bash
-    # 复制示例配置文件
-    cp example.env .env
+编辑 `.env`，至少配置一个 LLM 后端：
 
-    # 编辑 .env 填入你的 API Key
-    # 至少配置以下其中一项：
-    # - SILICONFLOW_API_KEY: SiliconFlow 云端大模型（推荐，无需本地GPU）
-    # - MAGICK_API_KEY: Magick API 云端模型服务
-    # - 本地启动 Ollama 服务（需下载模型）
-    ```
+```ini
+# ━━━ LLM API（三选一或全配） ━━━
+SILICONFLOW_API_KEY=sk-xxx          # SiliconFlow 云端（推荐，无需 GPU）
 
-    如果使用 Magick API，可在 `.env` 中配置：
-    ```bash
-    MAGICK_API_KEY=你的 Magick API Key
-    MAGICK_API_URL=https://api.magickapi.com/v1/chat/completions
-    MAGICK_MODEL_NAME=gpt-4o-mini
-    ```
+# ━━━ 联网搜索（可选） ━━━
+SERPAPI_KEY=your_serpapi_key        # 需要在 serpapi.com 注册
 
-    `MAGICK_API_URL` 支持填写完整的 `/chat/completions` 地址，也支持填写以 `/v1` 结尾的 OpenAI-compatible base URL。
+# ━━━ OCR（可选，扫描版 PDF 需要） ━━━
+TESSERACT_CMD=C:/Program Files/Tesseract-OCR/tesseract.exe
 
-4.  **安装并启动Ollama服务** (可选，如果希望使用本地大模型):
-    *   访问 [https://ollama.com/download](https://ollama.com/download) 下载并安装Ollama
-    *   启动Ollama服务: `ollama serve`
-    *   拉取所需模型: `ollama pull deepseek-r1:8b`
+# ━━━ Ollama 本地模型（可选） ━━━
+OLLAMA_MODEL_NAME=deepseek-r1:8b
+```
 
-### LLM 后端自动检测
-
-系统启动时会自动检测可用的 LLM 后端：
-
-| 优先级 | 条件 | 行为 |
-|--------|------|------|
-| 1 | `.env` 中配置了 `SILICONFLOW_API_KEY` | 默认使用云端 SiliconFlow API |
-| 2 | `.env` 中配置了 `MAGICK_API_KEY` | 默认使用 Magick API |
-| 3 | 本地 Ollama 服务可用 | 默认使用本地 Ollama 模型 |
-| 4 | 都不可用 | 提示用户配置 |
-
-> 在 UI 中你随时可以通过下拉框手动切换模型。
-
-### 启动服务
+### 5. 启动服务
 
 ```bash
 python rag_demo.py
 ```
 
-服务启动后会自动在浏览器中打开 `http://127.0.0.1:17995`。
+> **Windows 中文系统注意**（避免 emoji 和控制台编码问题）：
+> ```powershell
+> $env:PYTHONIOENCODING='utf-8'
+> python -X utf8 rag_demo.py
+> ```
 
-> ⏰ 首次运行时会自动下载向量化模型（约 80MB），请耐心等待。
+启动后浏览器打开 `http://127.0.0.1:17995`（端口 17995→17999 自动选取可用端口）。
 
-## 📦 核心依赖（按功能层分类）
-
-### 用户交互层
-* gradio: 快速搭建交互式 Web 界面
-
-### 数据处理层
-* pdfminer.six: PDF 文本提取
-* langchain-text-splitters: 文本分段工具
-* sentence-transformers: 文本向量化 + 语义重排序
-* faiss-cpu: 高效向量检索库
-* jieba: 中文分词
-* rank_bm25: BM25 关键词检索
-
-### 检索与外部调用
-* requests, urllib3: HTTP 请求与重试机制
-
-### 系统与辅助工具
-* python-dotenv: 环境变量管理
-* psutil: 系统资源监控
-* numpy: 向量计算
-
-### 可选 API 服务
-* fastapi, uvicorn: 独立 REST API 服务
-
-## 💡 进阶与扩展方向
-
-1.  **多跳检索与推理链支持** — 处理需要多次检索-推理循环的复杂问题（困难）
-2.  **混合检索与多模态适配** — 集成图像、表格等多模态内容的检索（中等至困难）
-3.  **检索器的自我批判与优化循环** — LLM 评估检索质量并自动改进（困难）
-4.  **基于用户反馈的持续学习** — 利用用户反馈动态调优（困难）
-5.  **缓存与索引的智能更新策略** — 增量索引更新 + 智能缓存层（中等）
-
-欢迎大家基于此项目进行探索和贡献！
+> ⏰ 首次启动会下载嵌入模型 all-MiniLM-L6-v2（约 80MB），请耐心等待。
 
 ---
 
-## 📖 想更系统地学习？
+## ⚙️ .env 完整配置说明
 
-大家好，我是**韦东东**，也是这个开源项目的作者。
+```ini
+# ═══════════════════════════════════════
+# LLM API 密钥（至少配置一项）
+# ═══════════════════════════════════════
+SILICONFLOW_API_KEY=sk-xxx
+SILICONFLOW_API_URL=https://api.deepseek.com/v1/chat/completions
+SILICONFLOW_MODEL_NAME=deepseek-v4-flash
 
-这个项目是我专门为 RAG 新手入门打造的学习框架，帮助大家从零理解 RAG 的核心处理逻辑。如果你在实践过程中，希望更加体系化地掌握 RAG 以及企业大模型应用的落地能力，我推荐以下三个内容，它们之间是一个**递进关系**：
+MAGICK_API_KEY=Your_Magick_API_Key
+MAGICK_API_URL=https://api.magickapi.com/v1/chat/completions
+MAGICK_MODEL_NAME=gpt-4o-mini
 
-### 📘 第一步：打好基础 — 阅读《RAG落地之道》
+OLLAMA_MODEL_NAME=deepseek-r1:8b
 
-这本书是我基于一线实战经验撰写的，从原生开发到框架集成、从开源平台到企业级系统，循序渐进地带你掌握完整的技术栈。书中提供完整可运行的源代码，覆盖多层次技术线，**如果你是新手，从这里开始最合适**。
+# ═══════════════════════════════════════
+# 联网搜索
+# ═══════════════════════════════════════
+SERPAPI_KEY=your_serpapi_key_here
 
-<div align="center">
-<img src="book.jpg" width="300" alt="《RAG落地之道：从工作流到企业级Agent》">
-<p><strong>《RAG落地之道：从工作流到企业级Agent》</strong><br>韦东东 著 | 电子工业出版社</p>
-</div>
+# ═══════════════════════════════════════
+# Tesseract OCR（扫描 PDF 需要）
+# ═══════════════════════════════════════
+TESSERACT_CMD=C:/Program Files/Tesseract-OCR/tesseract.exe
 
-### 🎬 第二步：案例实战 — 视频课程
-
-当你有了一定的基础和实操经验后，可以通过这套视频课程深入学习**真实企业场景的落地方法论**。课程涵盖 **15 个企业大模型应用落地案例**，从先导补课到概念拆解再到案例落地，三个层次层层递进，帮助你从"能跑通 Demo"进化到"能交付项目"。
-
-<div align="center">
-<img src="视频课程.png" width="500" alt="企业大模型应用落地 - 从入门到进阶">
-<p><strong>企业大模型应用落地 · 从入门到进阶</strong><br>20+ 项目交付 | 10+5 案例 | 落地工具包</p>
-</div>
-
-### 🌟 第三步：持续进阶 — 加入交流社群
-
-如果你已经在一线做大模型应用落地，想要和同行交流实战经验、获取最新的案例和方法论，欢迎加入我的知识星球社群。**300+ 企业大模型从业者**在这里分享一手经验，持续更新中。
-
-<div align="center">
-<img src="知识星球.jpg" width="300" alt="企业大模型应用从入门到落地 - 知识星球">
-<p><strong>企业大模型应用从入门到落地</strong><br>300+ 成员 | 340+ 内容 | 持续更新</p>
-</div>
-
----
-
-## 🚀 个人改造亮点
-
-基于原项目进行了三个方向的二次开发，提升工程完整度与产品化体验：
-
-### 1. 多格式文档解析支持
-
-- 封装统一文档加载器 `utils/document_loader.py`，将支持格式从单一 PDF 扩展至 **Word / Markdown / TXT** 四类常见文档
-- 基于 `LangChain Document` 规范统一输出格式，下游向量化与检索逻辑无需改动
-- DOCX 自动提取段落+表格内容，MD/TXT 支持 UTF-8 编码
-
-### 2. 向量库持久化与多知识库管理
-
-- 实现 FAISS 向量库本地磁盘持久化存储，使用 `serialize_index` 解决中文路径兼容问题，程序重启无需重新向量化
-- 支持**多知识库隔离创建、切换与文档追加**，不同场景数据互不干扰
-- 启动时自动扫描 `knowledge_bases/` 目录加载已有知识库，开箱即用
-- 完整的 `BM25` 索引同步持久化，保证检索一致性
-
-### 3. 对话历史持久化与导出
-
-- 基于 **SQLite** 实现对话记录持久化存储，刷新页面会话不丢失
-- 对话历史与知识库绑定，多库会话独立管理
-- 支持一键导出对话记录为 **Markdown 格式**，便于整理留存
-- 切换知识库时自动加载对应历史，清空对话同步清除数据库
+# ═══════════════════════════════════════
+# Ollama 参数（可选）
+# ═══════════════════════════════════════
+OLLAMA_NUM_CTX=4096
+OLLAMA_TEMPERATURE=0.7
+OLLAMA_TOP_P=0.9
+```
 
 ---
 
-## 📝 许可证
+## 📂 项目结构
 
-本项目采用MIT许可证。
+```
+Local_Pdf_Chat_RAG/
+├── rag_demo.py                # 🖥️ Gradio UI 主入口（事件绑定 + 布局）
+├── config.py                  # ⚙️ 配置中心（环境变量 / 超参数 / 检测机制）
+├── api_router.py              # 🔌 FastAPI REST API
+├── .env                       # 🔑 密钥配置（不纳入版本控制）
+├── requirements.txt           # 📦 依赖清单
+├── chat_history.db            # 🗄️ SQLite 对话历史（自动生成）
+├── rag_app_output.log         # 📝 运行日志（自动生成）
+│
+├── core/                      # 🧠 RAG 核心引擎
+│   ├── embeddings.py          #    文本→向量（SentenceTransformer）
+│   ├── text_splitter.py       #    单层/双层分块（RecursiveCharacter）
+│   ├── vector_store.py        #    FAISS 索引 + 文件管理 + 持久化 + 相似度检索
+│   ├── bm25_index.py          #    BM25 稀疏检索 + 持久化
+│   ├── retriever.py           #    混合检索 + 递归检索 + 联网兜底触发
+│   ├── parent_retriever.py    #    父文档映射 + MMR 重排序
+│   ├── reranker.py            #    Cross-Encoder 重排序
+│   ├── generator.py           #    LLM 调用 + Prompt 构建 + 溯源引用
+│   └── knowledge_base_manager.py  # 多知识库 save/load/delete
+│
+├── features/                  # ✨ 功能扩展
+│   ├── web_search.py          #    SerpAPI 联网搜索
+│   ├── thinking_chain.py      #    DeepSeek 思维链处理
+│   └── conflict_detector.py   #    多来源矛盾检测
+│
+├── utils/                     # 🔧 工具模块
+│   ├── document_loader.py     #    多格式文档加载 + OCR
+│   ├── chat_history.py        #    SQLite 独立数据表 + Markdown 导出
+│   ├── retry.py               #    指数退避重试
+│   └── network.py             #    HTTP Session + 端口检测
+│
+└── knowledge_bases/           # 📚 知识库数据（自动生成，不纳入版本控制）
+    └── {kb_name}/
+        ├── index.faiss
+        ├── contents_map.json
+        ├── metadatas_map.json
+        ├── parent_chunks_map.json
+        ├── file_index.json
+        └── ... (其他元数据)
+```
+
+---
+
+## 🧩 核心架构流程
+
+```
+用户提问
+   │
+   ▼
+┌─ 1. 语义检索 (FAISS + all-MiniLM-L6-v2) ──┐
+│    + BM25 关键词检索 (jieba + BM25Okapi)    │
+└──────────────────────────────────────────────┘
+   │
+   ▼
+┌─ 2. Hybrid 混合 (α × 语义 + (1-α) × BM25) ┐
+└──────────────────────────────────────────────┘
+   │
+   ▼
+┌─ 3. Parent 映射 (子块 → 父块) ────────────┐
+└──────────────────────────────────────────────┘
+   │
+   ▼
+┌─ 4. MMR 多样性重排 ───────────────────────┐
+│   λ × Sim(q,d) - (1-λ) × max Sim(dᵢ,dⱼ)  │
+└──────────────────────────────────────────────┘
+   │
+   ▼
+┌─ 5. Cross-Encoder 精排 Top-5 ─────────────┐
+└──────────────────────────────────────────────┘
+   │
+   ▼
+┌─ 6. 联网兜底判断 ─────────────────────────┐
+│   召回=0 或 最高相似度<0.3 → SerpAPI 补充   │
+└──────────────────────────────────────────────┘
+   │
+   ▼
+┌─ 7. LLM 生成 ─────────────────────────────┐
+│   Prompt = 上下文 + 来源标注 + 问题 → 模型  │
+└──────────────────────────────────────────────┘
+   │
+   ▼
+┌─ 8. 溯源引用 ─────────────────────────────┐
+│   ▶ 本地知识库参考 + ▶ 网络检索补充内容     │
+└──────────────────────────────────────────────┘
+```
+
+---
+
+## 📊 关键超参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `CHUNK_SIZE` | 400 | 单层分块字符数 |
+| `PARENT_CHUNK_SIZE` | 800 | 父文档块大小 |
+| `CHILD_CHUNK_SIZE` | 200 | 子文档块大小 |
+| `HYBRID_ALPHA` | 0.7 | 语义检索权重 |
+| `MMR_LAMBDA` | 0.5 | MMR 多样性（1=纯相关） |
+| `RETRIEVAL_TOP_K` | 10 | 初始检索候选数 |
+| `RERANK_TOP_K` | 5 | 重排序后保留数 |
+| `LOCAL_SCORE_THRESHOLD` | 0.3 | 联网搜索触发阈值 |
+| `WEB_SEARCH_MAX_RESULTS` | 5 | 联网搜索最大条数 |
+| `OLLAMA_NUM_CTX` | 4096 | Ollama 上下文窗口 |
+
+---
+
+## 🤝 贡献指南
+
+欢迎提交 Issue 和 PR！
+
+1. Fork 本仓库
+2. 创建特性分支：`git checkout -b feature/amazing-feature`
+3. 提交变更：`git commit -m 'feat: add amazing feature'`
+4. 推送分支：`git push origin feature/amazing-feature`
+5. 提交 Pull Request
+
+### 开发约定
+
+- 新增功能写在独立文件中（`core/` 或 `utils/` 目录）
+- 配置参数放在 `config.py`，不硬编码
+- 所有空列表/空索引增加前置判断，杜绝除零异常
+- 保持向后兼容，不改动已稳定的解析/OCR 逻辑
+
+---
+
+## 📄 许可证
+
+本项目基于 MIT 许可证开源。
+
+---
+
+<div align="center">
+<p>如果这个项目对你有帮助，欢迎 ⭐ Star 支持！</p>
+<p>
+<a href="https://github.com/CCC481568794/Local_Pdf_Chat_RAG">GitHub 仓库</a>
+</p>
+</div>
