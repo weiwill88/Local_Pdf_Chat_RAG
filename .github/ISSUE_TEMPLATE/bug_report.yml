@@ -1,0 +1,52 @@
+name: Bug report
+description: Report a reproducible problem in the current release
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping improve Local PDF Chat RAG. Remove credentials and private documents before submitting.
+  - type: input
+    id: version
+    attributes:
+      label: Project version or commit
+      placeholder: v2.1.0 or commit SHA
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: macOS 15, Python 3.10, Ollama
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest sequence that reproduces the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and sanitized logs
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I tested the current main branch or latest release.
+          required: true
+        - label: I removed API keys, private data, and internal URLs.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true

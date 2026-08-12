@@ -11,6 +11,7 @@ from typing import Dict, Any, List, Optional
 import logging
 import asyncio
 from contextlib import asynccontextmanager
+from version import __version__
 
 # 从重构后的模块导入
 from config import SILICONFLOW_API_KEY, MAGICK_API_KEY, is_configured_api_key
@@ -44,7 +45,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="本地RAG API服务",
     description="提供基于本地大模型、云端模型服务和SERPAPI的文档问答API接口",
-    version="2.0.0",
+    version=__version__,
     lifespan=lifespan
 )
 
@@ -136,7 +137,7 @@ async def check_status():
         "serpapi_configured": check_serpapi_key(),
         "vector_store_ready": vector_store.is_ready,
         "total_chunks": vector_store.total_chunks,
-        "version": "2.0.0"
+        "version": __version__
     }
 
 

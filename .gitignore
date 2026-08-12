@@ -1,6 +1,7 @@
 # 环境与依赖
 .env
 rag_env/
+.venv/
 __pycache__/
 *.pyc
 *.pyo
@@ -18,3 +19,12 @@ models/
 # OS
 .DS_Store
 Thumbs.db
+
+# Test and coverage output
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local browser verification artifacts
+.playwright-cli/
+output/playwright/
