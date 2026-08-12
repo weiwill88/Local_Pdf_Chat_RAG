@@ -1,0 +1,32 @@
+name: Feature request
+description: Propose a focused improvement to the educational RAG pipeline
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or learning need
+      description: Explain the concrete limitation or learning outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Describe the smallest useful change and which module it affects.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: The proposal keeps the RAG pipeline inspectable and testable.
+          required: true
+        - label: The proposal does not require committing credentials or private data.
+          required: true

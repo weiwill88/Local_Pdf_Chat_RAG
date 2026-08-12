@@ -1,5 +1,5 @@
 # 核心依赖
-gradio>=3.50.0
+gradio>=6.0.0,<7.0.0
 pdfminer.six>=20221105
 sentence-transformers>=2.2.2
 faiss-cpu
@@ -17,6 +17,9 @@ pydantic>=2.9.2,<2.11.0
 # 处理相关的pdf、word等文件所需相关库
 python-docx
 python-pptx
+pandas>=2.0.0
+openpyxl>=3.1.0
+xlrd>=2.0.1
 
 # 工具依赖
 numpy>=1.26.1

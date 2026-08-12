@@ -62,6 +62,18 @@ def is_configured_api_key(api_key):
     """判断 API Key 是否为用户实际配置值。"""
     return bool(api_key and api_key.strip() and not api_key.strip().startswith("Your"))
 
+
+def choose_default_model(siliconflow_key, magick_key, ollama_available=False):
+    """按稳定、可测试的优先级选择默认模型后端。"""
+    if is_configured_api_key(siliconflow_key):
+        return "siliconflow"
+    if is_configured_api_key(magick_key):
+        return "magick"
+    if ollama_available:
+        return "ollama"
+    # 保持 UI 的默认选项稳定；启动检查会给出明确的未配置提示。
+    return "siliconflow"
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 第四步：RAG 超参数
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -95,21 +107,21 @@ def detect_default_model():
     """
     if is_configured_api_key(SILICONFLOW_API_KEY):
         logging.info("✅ 检测到 SiliconFlow API Key，默认使用云端模型")
-        return "siliconflow"
+        return choose_default_model(SILICONFLOW_API_KEY, MAGICK_API_KEY)
 
     if is_configured_api_key(MAGICK_API_KEY):
         logging.info("✅ 检测到 Magick API Key，默认使用 Magick API 模型")
-        return "magick"
+        return choose_default_model(SILICONFLOW_API_KEY, MAGICK_API_KEY)
 
     try:
         response = requests.get("http://localhost:11434/api/tags", timeout=3)
         if response.status_code == 200:
             logging.info("✅ 检测到本地 Ollama 服务，默认使用本地模型")
-            return "ollama"
+            return choose_default_model(SILICONFLOW_API_KEY, MAGICK_API_KEY, ollama_available=True)
     except Exception:
         pass
 
     logging.warning("⚠️ 未检测到可用 LLM 后端，请配置 SiliconFlow/Magick API Key 或启动 Ollama")
-    return "siliconflow"
+    return choose_default_model(SILICONFLOW_API_KEY, MAGICK_API_KEY)
 
 DEFAULT_MODEL_CHOICE = detect_default_model()

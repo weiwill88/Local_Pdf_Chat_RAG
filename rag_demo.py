@@ -205,13 +205,13 @@ CSS = """
 
 # 主题切换 JS（Gradio 6 通过 body.classList.toggle('dark') 切换暗色模式）
 THEME_JS = """
-function() {
+(() => {
     // 读取上次保存的主题偏好，默认白色
     const saved = localStorage.getItem('rag-theme');
     if (saved === 'dark') {
         document.querySelector('body').classList.add('dark');
     }
-}
+})()
 """
 
 def toggle_theme():

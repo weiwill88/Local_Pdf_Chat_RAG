@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # LangChain installs the optional LangSmith pytest plugin. The project
+      # tests do not use it, so keep CI isolated from third-party plugins.
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Compile Python sources
+        run: >-
+          python -m compileall -q
+          api_router.py config.py rag_demo.py version.py
+          core features utils tests
+
+      - name: Run tests
+        run: >-
+          python -m pytest -p pytest_cov.plugin
+          --cov=core --cov=config --cov-report=term-missing
