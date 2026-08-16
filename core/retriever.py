@@ -90,6 +90,7 @@ def recursive_retrieval(initial_query, max_iterations=None, enable_web_search=Fa
 
     query = initial_query
     all_contexts, all_doc_ids, all_metadata = [], [], []
+    seen_web_sources = set()
 
     for i in range(max_iterations):
         logging.info(f"递归检索 {i + 1}/{max_iterations}，当前 Query: {query}")
@@ -99,7 +100,21 @@ def recursive_retrieval(initial_query, max_iterations=None, enable_web_search=Fa
         if enable_web_search and check_serpapi_key():
             try:
                 for res in search_web(query):
-                    web_texts.append(f"标题：{res.get('title', '')}\n摘要：{res.get('snippet', '')}")
+                    title = res.get('title') or ''
+                    url = res.get('url') or ''
+                    snippet = res.get('snippet') or ''
+                    web_texts.append(f"标题：{title}\n摘要：{snippet}")
+                    source_key = url or f"{title}\n{snippet}"
+                    if snippet and source_key not in seen_web_sources:
+                        seen_web_sources.add(source_key)
+                        all_contexts.append(snippet)
+                        all_doc_ids.append(f"web:{source_key}")
+                        all_metadata.append({
+                            'source': 'web',
+                            'title': title,
+                            'url': url,
+                            'timestamp': res.get('timestamp'),
+                        })
             except Exception as e:
                 logging.error(f"网络搜索出错: {str(e)}")
 
