@@ -28,7 +28,7 @@ PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest
 1. Create a focused branch from the latest `main`.
 2. Keep the change small enough to review and explain why it belongs in this educational reference implementation.
 3. Add or update tests for behavior changes.
-4. Update both `README.md` and `README_EN.md` when public usage changes.
+4. Keep `README.md` and `README.zh-CN.md` synchronized when public usage changes.
 5. Run the compile and test commands above before opening the pull request.
 6. Complete the pull request template and link related issues.
 
